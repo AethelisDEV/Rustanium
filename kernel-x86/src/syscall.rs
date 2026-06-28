@@ -86,7 +86,7 @@ fn is_user_ptr(ptr: u64, len: usize) -> bool {
     }
 
     // 3. Check if it lies within the kernel heap (legacy / backward compatibility)
-    let heap_start = unsafe { HEAP_MEM.mem.get() as u64 };
+    let heap_start = HEAP_MEM.mem.get() as u64;
     let heap_end = heap_start + 512 * 1024 * 1024;
     if ptr >= heap_start && end <= heap_end {
         return true;
@@ -103,7 +103,7 @@ fn is_user_ptr(ptr: u64, len: usize) -> bool {
     }
 
     // 5. Check if it lies within the Shared System Info Page
-    let shared_start = unsafe { core::ptr::addr_of!(SHARED_INFO_PAGE) as u64 };
+    let shared_start = core::ptr::addr_of!(SHARED_INFO_PAGE) as u64;
     let shared_end = shared_start + 4096;
     if ptr >= shared_start && end <= shared_end {
         return true;
@@ -226,16 +226,12 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 }
 
                 // Enable interrupts while yielding to allow PIT timer and PS/2 device interrupts to execute
-                unsafe {
-                    x86_64::instructions::interrupts::enable();
-                }
+                x86_64::instructions::interrupts::enable();
 
                 scheduler::SCHEDULER.lock().thread_yield();
 
                 // Re-disable interrupts upon return to keep syscall processing context isolated
-                unsafe {
-                    x86_64::instructions::interrupts::disable();
-                }
+                x86_64::instructions::interrupts::disable();
             }
             0
         }
@@ -290,7 +286,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                     }
                 }
 
-                let fd_table_ptr = unsafe { core::ptr::addr_of_mut!(FD_TABLE) };
+                let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
                 for i in 3..16 {
                     let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[i]) };
                     let is_none = unsafe { (*slot_ptr).is_none() };
@@ -356,7 +352,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 return 0;
             }
 
-            let fd_table_ptr = unsafe { core::ptr::addr_of_mut!(FD_TABLE) };
+            let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
             let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[fd]) };
             let mut file_path = None;
             let mut offset = 0;
@@ -485,7 +481,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 return u64::MAX;
             }
 
-            let fd_table_ptr = unsafe { core::ptr::addr_of_mut!(FD_TABLE) };
+            let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
             let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[fd]) };
             let mut file_path = None;
             let mut offset = 0;
@@ -534,7 +530,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
             // SYS_CLOSE: RDI=FD
             let fd = arg1 as usize;
             if fd >= 3 && fd < 16 {
-                let fd_table_ptr = unsafe { core::ptr::addr_of_mut!(FD_TABLE) };
+                let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
                 let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[fd]) };
                 let is_some = unsafe { (*slot_ptr).is_some() };
                 if is_some {
@@ -598,7 +594,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
         }
         0x30 => {
             // SYS_GET_SHARED_INFO: returns virtual address of SHARED_INFO_PAGE mapped at user address 0x300000 read-only
-            let page_ptr = unsafe { core::ptr::addr_of_mut!(SHARED_INFO_PAGE) };
+            let page_ptr = core::ptr::addr_of_mut!(SHARED_INFO_PAGE);
             let page_addr = page_ptr as u64;
             unsafe {
                 let phys = usermode_x86::virt_to_phys(page_addr)

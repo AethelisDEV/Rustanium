@@ -108,6 +108,11 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Description**: Extracted the raw inline assembly port I/O code from `hal.rs` into a separate GNU/LLVM assembly source file `hal.s`. Declared `extern "C" { fn hal_write_byte(b: u8); }` to invoke the helper, and strictly encapsulated the unsafe block within the safe public sarmalayıcı (wrapper) function `SerialPort::write_byte`. Additionally, added `#![deny(unsafe_code)]` at the top of `bootstrap.rs` to enforce unsafe code exclusion in bootstrap path.
 * **Rationale**: Fully complies with the strict Zero Unsafe Policy for core workspace modules in `AI_GUIDELINES.md`, isolating necessary assembly/unsafe CPU boundaries from safe microkernel logic and guaranteeing the safety of bootstrap modules.
 * **Location**: `kernel-core/src/hal.s` (New), `kernel-core/src/hal.rs`, and `kernel-core/src/bootstrap.rs`
+### 13. Removal of Unnecessary Unsafe Blocks (Code Hygiene & Guidelines Alignment)
+* **Date**: June 28, 2026
+* **Description**: Cleaned up and removed 9 unnecessary `unsafe` blocks identified by `clippy` and static analysis inside the system call routing module.
+* **Rationale**: Aligns the codebase with the Zero Unsafe/Unsafe Isolation guidelines in `AI_GUIDELINES.md` by eliminating unused `unsafe` wrappers around safe functions (e.g. `interrupts::enable`/`disable`) and safe macros (e.g. `core::ptr::addr_of`/`addr_of_mut`).
+* **Location**: `kernel-x86/src/syscall.rs`
 
 ---
 
