@@ -230,7 +230,10 @@ fn translate_scancode(scancode: u8, shift: bool, layout: KeyboardLayout) -> Opti
 
 pub fn poll_keyboard() -> Option<KeyboardInput> {
     // First check the asynchronous interrupt buffer in case interrupts are active
-    if let Some(input) = crate::interrupts::KEYBOARD_BUFFER.lock().take() {
+    let input = x86_64::instructions::interrupts::without_interrupts(|| {
+        crate::interrupts::KEYBOARD_BUFFER.lock().take()
+    });
+    if let Some(input) = input {
         return Some(input);
     }
 

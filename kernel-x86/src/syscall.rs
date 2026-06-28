@@ -19,7 +19,6 @@ use crate::SYSTEM_CORE;
 use crate::GRAPHICS;
 use crate::SYSTEM_TICKS;
 use crate::ALLOCATOR;
-use crate::HEAP_MEM;
 
 #[derive(Clone)]
 pub struct OpenFile {
@@ -88,12 +87,7 @@ fn is_user_ptr(ptr: u64, len: usize) -> bool {
         return true;
     }
 
-    // 3. Check if it lies within the kernel heap (legacy / backward compatibility)
-    let heap_start = HEAP_MEM.mem.get() as u64;
-    let heap_end = heap_start + 512 * 1024 * 1024;
-    if ptr >= heap_start && end <= heap_end {
-        return true;
-    }
+
 
     // 4. Check if it lies within the UEFI GOP physical framebuffer
     let graphics_lock = GRAPHICS.lock();

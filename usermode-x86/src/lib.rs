@@ -25,12 +25,12 @@ pub static LOG_CALLBACK: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(core::ptr
 
 /// Sets the active logger callback function.
 pub fn init_logger(callback: fn(&str)) {
-    LOG_CALLBACK.store(callback as *mut core::ffi::c_void, Ordering::Relaxed);
+    LOG_CALLBACK.store(callback as *mut core::ffi::c_void, Ordering::Release);
 }
 
 /// Dispatches a log message back to the registered console callback.
 pub fn log(msg: &str) {
-    let cb_ptr = LOG_CALLBACK.load(Ordering::Relaxed);
+    let cb_ptr = LOG_CALLBACK.load(Ordering::Acquire);
     if !cb_ptr.is_null() {
         let cb: fn(&str) = unsafe { core::mem::transmute(cb_ptr) };
         cb(msg);
