@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 #![no_std]
 #![no_main]
 
@@ -33,6 +36,8 @@ use wallpaper::*;
 use monitor::*;
 use taskbar::*;
 use file_manager::*;
+
+use core::sync::atomic::Ordering;
 
 // ------------------------------------------------------------
 // Entry Point and Stack Alignment
@@ -91,20 +96,16 @@ extern "C" fn main_rust() -> ! {
         syscall0(3);
     }
 
-    unsafe {
-        SCREEN_WIDTH = screen_info.width as i32;
-        SCREEN_HEIGHT = screen_info.height as i32;
-        SCREEN_FORMAT = screen_info.format;
-    }
+    SCREEN_WIDTH.store(screen_info.width as i32, Ordering::Relaxed);
+    SCREEN_HEIGHT.store(screen_info.height as i32, Ordering::Relaxed);
+    SCREEN_FORMAT.store(screen_info.format, Ordering::Relaxed);
     {
         let mut buf = [0u8; 128];
         let mut w = StrbufWriter::new(&mut buf);
-        unsafe {
-            let sw = SCREEN_WIDTH;
-            let sh = SCREEN_HEIGHT;
-            let fmt = SCREEN_FORMAT;
-            let _ = core::fmt::write(&mut w, format_args!("[DE] Screen: {}x{} format={}\n", sw, sh, fmt));
-        }
+        let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+        let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+        let fmt = SCREEN_FORMAT.load(Ordering::Relaxed);
+        let _ = core::fmt::write(&mut w, format_args!("[DE] Screen: {}x{} format={}\n", sw, sh, fmt));
         serial_print(w.as_str());
     }
 
@@ -236,41 +237,38 @@ extern "C" fn main_rust() -> ! {
                 } else if event.event_type == 2 {
                     cursor_x = event.mouse_x;
                     cursor_y = event.mouse_y;
-                    let left_clicked = event.mouse_left_clicked;
+                    let left_clicked = event.mouse_left_clicked;                    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+                    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+                    let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+                    let in_dock_zone = cursor_y >= (sh - 120);
+                    let prev_in_dock_zone = prev_render_y >= (sh - 120);
+                    let in_start_menu_zone = if start_menu_open {
+                        let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
+                        let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
+                        let menu_w = 220i32;
+                        let menu_h = 185i32;
+                        let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
+                        let menu_y = (sh - 82) - menu_h - 12;
+                        cursor_x >= menu_x && cursor_x < menu_x + menu_w &&
+                        cursor_y >= menu_y && cursor_y < menu_y + menu_h
+                    } else {
+                        false
+                    };
+                    let prev_in_start_menu_zone = if start_menu_open {
+                        let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, prev_render_x, prev_render_y);
+                        let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
+                        let menu_w = 220i32;
+                        let menu_h = 185i32;
+                        let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
+                        let menu_y = (sh - 82) - menu_h - 12;
+                        prev_render_x >= menu_x && prev_render_x < menu_x + menu_w &&
+                        prev_render_y >= menu_y && prev_render_y < menu_y + menu_h
+                    } else {
+                        false
+                    };
 
-                    unsafe {
-                        let sw = SCREEN_WIDTH;
-                        let sh = SCREEN_HEIGHT;
-                        let in_dock_zone = cursor_y >= (sh - 120);
-                        let prev_in_dock_zone = prev_render_y >= (sh - 120);
-                        let in_start_menu_zone = if START_MENU_OPEN {
-                            let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
-                            let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-                            let menu_w = 220i32;
-                            let menu_h = 185i32;
-                            let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-                            let menu_y = (sh - 82) - menu_h - 12;
-                            cursor_x >= menu_x && cursor_x < menu_x + menu_w &&
-                            cursor_y >= menu_y && cursor_y < menu_y + menu_h
-                        } else {
-                            false
-                        };
-                        let prev_in_start_menu_zone = if START_MENU_OPEN {
-                            let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, prev_render_x, prev_render_y);
-                            let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-                            let menu_w = 220i32;
-                            let menu_h = 185i32;
-                            let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-                            let menu_y = (sh - 82) - menu_h - 12;
-                            prev_render_x >= menu_x && prev_render_x < menu_x + menu_w &&
-                            prev_render_y >= menu_y && prev_render_y < menu_y + menu_h
-                        } else {
-                            false
-                        };
-
-                        if left_clicked == 1 || prev_left_clicked == 1 || in_dock_zone || prev_in_dock_zone || in_start_menu_zone || prev_in_start_menu_zone {
-                            needs_redraw = true;
-                        }
+                    if left_clicked == 1 || prev_left_clicked == 1 || in_dock_zone || prev_in_dock_zone || in_start_menu_zone || prev_in_start_menu_zone {
+                        needs_redraw = true;
                     }
 
                     let dx = cursor_x - prev_mouse_x;
@@ -282,78 +280,81 @@ extern "C" fn main_rust() -> ! {
                             let mut event_consumed = false;
                             
                             // Check Start Menu (Launchpad) first
-                            unsafe {
-                                let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(SCREEN_WIDTH, SCREEN_HEIGHT, cursor_x, cursor_y);
-                                let dock_y = SCREEN_HEIGHT - 82;
+                            let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+                            let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+                            let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+                            let start_menu_animating = START_MENU_ANIMATING.load(Ordering::Relaxed);
+                            let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
+                            let dock_y = sh - 82;
+                            
+                            if start_menu_open && !start_menu_animating {
+                                let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
+                                let menu_w = 220i32;
+                                let menu_h = 185i32;
+                                let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
+                                let menu_y = dock_y - menu_h - 12;
                                 
-                                if START_MENU_OPEN && !START_MENU_ANIMATING {
-                                    let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-                                    let menu_w = 220i32;
-                                    let menu_h = 185i32;
-                                    let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-                                    let menu_y = dock_y - menu_h - 12;
-                                    
-                                    if cursor_x >= menu_x && cursor_x < menu_x + menu_w &&
-                                       cursor_y >= menu_y && cursor_y < menu_y + menu_h {
-                                        event_consumed = true;
-                                        for i in 0..4 {
-                                            let iy = menu_y + 44 + (i as i32) * 33;
-                                            if cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
-                                               cursor_y >= iy && cursor_y < iy + 27 {
-                                                if i == 0 {
-                                                    focus_window_by_id(0); // Metrics
-                                                } else if i == 1 {
-                                                    focus_window_by_id(2); // Files
-                                                } else if i == 2 {
-                                                    focus_window_by_id(1); // Console
-                                                } else if i == 3 {
-                                                    sys_write(2, "Shutting down system...\n".as_ptr(), 24);
-                                                    syscall0(3);
-                                                }
-                                                START_MENU_ANIMATING = true;
-                                                START_MENU_OPEN = false;
-                                                break;
+                                if cursor_x >= menu_x && cursor_x < menu_x + menu_w &&
+                                   cursor_y >= menu_y && cursor_y < menu_y + menu_h {
+                                    event_consumed = true;
+                                    for i in 0..4 {
+                                        let iy = menu_y + 44 + (i as i32) * 33;
+                                        if cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
+                                           cursor_y >= iy && cursor_y < iy + 27 {
+                                            if i == 0 {
+                                                focus_window_by_id(0); // Metrics
+                                            } else if i == 1 {
+                                                focus_window_by_id(2); // Files
+                                            } else if i == 2 {
+                                                focus_window_by_id(1); // Console
+                                            } else if i == 3 {
+                                                sys_write(2, "Shutting down system...\n".as_ptr(), 24);
+                                                syscall0(3);
                                             }
+                                            START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                                            START_MENU_OPEN.store(false, Ordering::Relaxed);
+                                            break;
                                         }
-                                    } else {
-                                        let on_launchpad = cursor_x >= dock_xs[0] as i32 && cursor_x < (dock_xs[0] + dock_sizes[0]) as i32 &&
-                                                           cursor_y >= dock_y && cursor_y < dock_y + 72;
-                                        if !on_launchpad {
-                                            START_MENU_ANIMATING = true;
-                                            START_MENU_OPEN = false;
-                                            event_consumed = true;
-                                        }
+                                    }
+                                } else {
+                                    let on_launchpad = cursor_x >= dock_xs[0] as i32 && cursor_x < (dock_xs[0] + dock_sizes[0]) as i32 &&
+                                                       cursor_y >= dock_y && cursor_y < dock_y + 72;
+                                    if !on_launchpad {
+                                        START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                                        START_MENU_OPEN.store(false, Ordering::Relaxed);
+                                        event_consumed = true;
                                     }
                                 }
                             }
                             
                             if !event_consumed {
                                 // Check Dock click
-                                unsafe {
-                                    let (dock_start_x, dock_w, dock_sizes, dock_xs) = get_dock_layout(SCREEN_WIDTH, SCREEN_HEIGHT, cursor_x, cursor_y);
-                                    let dock_y = SCREEN_HEIGHT - 82;
+                                let (dock_start_x, dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
+                                let dock_y = sh - 82;
+                                
+                                if cursor_y >= dock_y && cursor_y < dock_y + 72 &&
+                                   cursor_x >= dock_start_x as i32 && cursor_x < (dock_start_x + dock_w) as i32 {
                                     
-                                    if cursor_y >= dock_y && cursor_y < dock_y + 72 &&
-                                       cursor_x >= dock_start_x as i32 && cursor_x < (dock_start_x + dock_w) as i32 {
-                                        
-                                        event_consumed = true;
-                                        
-                                        for i in 0..4 {
-                                            let item_x = dock_xs[i];
-                                            let item_size = dock_sizes[i];
-                                            if cursor_x >= item_x as i32 && cursor_x < (item_x + item_size) as i32 {
-                                                if i == 0 {
-                                                    START_MENU_ANIMATING = true;
-                                                    START_MENU_OPEN = !START_MENU_OPEN;
-                                                } else {
-                                                    let win_id = match i {
-                                                        1 => 0, // Metrics
-                                                        2 => 2, // Files
-                                                        3 => 1, // Console
-                                                        _ => 0,
-                                                    };
-                                                    
-                                                    let mut found_win_idx = None;
+                                    event_consumed = true;
+                                    
+                                    for i in 0..4 {
+                                        let item_x = dock_xs[i];
+                                        let item_size = dock_sizes[i];
+                                        if cursor_x >= item_x as i32 && cursor_x < (item_x + item_size) as i32 {
+                                            if i == 0 {
+                                                START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                                                let open = START_MENU_OPEN.load(Ordering::Relaxed);
+                                                START_MENU_OPEN.store(!open, Ordering::Relaxed);
+                                            } else {
+                                                let win_id = match i {
+                                                    1 => 0, // Metrics
+                                                    2 => 2, // Files
+                                                    3 => 1, // Console
+                                                    _ => 0,
+                                                };
+                                                
+                                                let mut found_win_idx = None;
+                                                unsafe {
                                                     for idx in 0..4 {
                                                         if let Some(ref win) = WINDOWS[idx] {
                                                             if win.id == win_id {
@@ -362,24 +363,24 @@ extern "C" fn main_rust() -> ! {
                                                             }
                                                         }
                                                     }
+                                                }
+                                                
+                                                if let Some(idx) = found_win_idx {
+                                                    let is_open = unsafe { WINDOWS[idx].as_ref().unwrap().is_open };
+                                                    let is_focused = unsafe { WINDOWS[idx].as_ref().unwrap().is_focused };
                                                     
-                                                    if let Some(idx) = found_win_idx {
-                                                        let is_open = WINDOWS[idx].as_ref().unwrap().is_open;
-                                                        let is_focused = WINDOWS[idx].as_ref().unwrap().is_focused;
-                                                        
-                                                        if is_open && is_focused {
-                                                            let mut win_mut = WINDOWS[idx].take().unwrap();
-                                                            win_mut.is_animating = true;
-                                                            win_mut.anim_direction = false;
-                                                            win_mut.anim_progress = 100;
-                                                            WINDOWS[idx] = Some(win_mut);
-                                                        } else {
-                                                            focus_window_by_id(win_id);
-                                                        }
+                                                    if is_open && is_focused {
+                                                        let mut win_mut = unsafe { WINDOWS[idx].take().unwrap() };
+                                                        win_mut.is_animating = true;
+                                                        win_mut.anim_direction = false;
+                                                        win_mut.anim_progress = 100;
+                                                        unsafe { WINDOWS[idx] = Some(win_mut); }
+                                                    } else {
+                                                        focus_window_by_id(win_id);
                                                     }
                                                 }
-                                                break;
                                             }
+                                            break;
                                         }
                                     }
                                 }
@@ -430,8 +431,8 @@ extern "C" fn main_rust() -> ! {
                                                             win_mut.prev_h = win_mut.height;
                                                             win_mut.x = 0;
                                                             win_mut.y = 0;
-                                                            win_mut.width = SCREEN_WIDTH as usize;
-                                                            win_mut.height = (SCREEN_HEIGHT - 52) as usize;
+                                                            win_mut.width = SCREEN_WIDTH.load(Ordering::Relaxed) as usize;
+                                                            win_mut.height = (SCREEN_HEIGHT.load(Ordering::Relaxed) - 52) as usize;
                                                             win_mut.is_maximized = true;
                                                         } else {
                                                             win_mut.x = win_mut.prev_x;
@@ -580,12 +581,12 @@ extern "C" fn main_rust() -> ! {
             }
         }
 
-        let ticks = unsafe { (*shared_info).system_ticks };
+        let ticks = unsafe { (*shared_info).system_ticks.load(Ordering::Relaxed) };
         if ticks - last_tick_update >= 10 { // Update metrics every 100ms
             last_tick_update = ticks;
             needs_redraw = true;
             unsafe {
-                let cpu_load = ((*shared_info).cpu_usage / 100) as u8;
+                let cpu_load = ((*shared_info).cpu_usage.load(Ordering::Relaxed) / 100) as u8;
                 for i in 0..39 {
                     CPU_HISTORY[i] = CPU_HISTORY[i+1];
                 }
@@ -596,8 +597,8 @@ extern "C" fn main_rust() -> ! {
         // Tick animations based on system time rather than raw loop iterations.
         // This makes animation speeds consistent regardless of frame/event rate.
         let mut anim_running = false;
+        if START_MENU_ANIMATING.load(Ordering::Relaxed) { anim_running = true; }
         unsafe {
-            if START_MENU_ANIMATING { anim_running = true; }
             for i in 0..4 {
                 if let Some(ref win) = WINDOWS[i] {
                     if win.is_animating { anim_running = true; }
@@ -605,28 +606,30 @@ extern "C" fn main_rust() -> ! {
             }
         }
 
-        let ticks = unsafe { (*shared_info).system_ticks };
+        let ticks = unsafe { (*shared_info).system_ticks.load(Ordering::Relaxed) };
         let tick_diff = (ticks - last_anim_tick) as i32;
 
         if tick_diff > 0 && anim_running {
             last_anim_tick = ticks;
-            unsafe {
-                if START_MENU_ANIMATING {
-                    if START_MENU_OPEN {
-                        START_MENU_ANIM_PROGRESS += 0.08 * tick_diff as f32;
-                        if START_MENU_ANIM_PROGRESS >= 1.0 {
-                            START_MENU_ANIM_PROGRESS = 1.0;
-                            START_MENU_ANIMATING = false;
-                        }
-                    } else {
-                        START_MENU_ANIM_PROGRESS -= 0.08 * tick_diff as f32;
-                        if START_MENU_ANIM_PROGRESS <= 0.0 {
-                            START_MENU_ANIM_PROGRESS = 0.0;
-                            START_MENU_ANIMATING = false;
-                        }
+            if START_MENU_ANIMATING.load(Ordering::Relaxed) {
+                let open = START_MENU_OPEN.load(Ordering::Relaxed);
+                let mut progress = f32::from_bits(START_MENU_ANIM_PROGRESS.load(Ordering::Relaxed));
+                if open {
+                    progress += 0.08 * tick_diff as f32;
+                    if progress >= 1.0 {
+                        progress = 1.0;
+                        START_MENU_ANIMATING.store(false, Ordering::Relaxed);
+                    }
+                } else {
+                    progress -= 0.08 * tick_diff as f32;
+                    if progress <= 0.0 {
+                        progress = 0.0;
+                        START_MENU_ANIMATING.store(false, Ordering::Relaxed);
                     }
                 }
-
+                START_MENU_ANIM_PROGRESS.store(progress.to_bits(), Ordering::Relaxed);
+            }
+            unsafe {
                 for i in 0..4 {
                     if let Some(ref mut win) = WINDOWS[i] {
                         if win.is_animating {
@@ -695,10 +698,10 @@ extern "C" fn main_rust() -> ! {
             let w2 = measure_text("Monitor", AtlasSize::Small, AtlasWeight::Regular);
             draw_text_atlas(icon_center - w2 / 2, 284, "Monitor", 210, 222, 240, AtlasSize::Small, AtlasWeight::Regular);
 
-            unsafe {
-                let sw = SCREEN_WIDTH;
-                let sh = SCREEN_HEIGHT;
+            let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+            let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
 
+            unsafe {
                 for i in 0..4 {
                     if let Some(ref win) = WINDOWS[i] {
                         if !win.is_open && !win.is_animating {
@@ -729,8 +732,6 @@ extern "C" fn main_rust() -> ! {
             let fb_ptr = screen_info.framebuffer_addr as *mut u8;
             unsafe {
                 let back_buffer_ptr = core::ptr::addr_of!(BACK_BUFFER.0) as *const u8;
-                let sw = SCREEN_WIDTH;
-                let sh = SCREEN_HEIGHT;
                 core::ptr::copy_nonoverlapping(
                     back_buffer_ptr,
                     fb_ptr,
@@ -746,9 +747,9 @@ extern "C" fn main_rust() -> ! {
             needs_redraw = false;
         } else if cursor_x != prev_render_x || cursor_y != prev_render_y {
             let fb_ptr = screen_info.framebuffer_addr as *mut u8;
+            let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+            let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
             unsafe {
-                let sw = SCREEN_WIDTH;
-                let sh = SCREEN_HEIGHT;
                 // Restore background under old cursor from BACK_BUFFER
                 copy_rect_back_to_fb(fb_ptr, prev_render_x, prev_render_y, 8, 12, sw, sh);
                 // Draw cursor at new position directly to framebuffer
@@ -759,5 +760,3 @@ extern "C" fn main_rust() -> ! {
         }
     }
 }
-
-

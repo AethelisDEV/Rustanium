@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Safe Virtual File System Manager
 //!
 //! This module implements path resolution, node lookup, directory and file creations,

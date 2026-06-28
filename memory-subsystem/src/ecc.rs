@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Hamming SECDED (13,8) Error-Correcting Code Module
 //!
 //! This module implements Single Error Correction, Double Error Detection (SECDED)

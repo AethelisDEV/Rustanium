@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Bare-Metal System Logging and Telemetry Output Module
 //!
 //! Provides global thread-safe buffers and custom formatting writers to manage

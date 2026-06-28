@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 /// Atlas font renderer — Inter font glyphs pre-rasterized at build time.
 ///
 /// Sizes available (suffix):
@@ -113,8 +116,9 @@ fn blit_glyph<const N: usize, const CW: usize, const CH: usize>(
     _cell_h: usize,
 ) -> i32 {
     use crate::state::{BACK_BUFFER, SCREEN_WIDTH, SCREEN_HEIGHT};
-    let sw = unsafe { SCREEN_WIDTH };
-    let sh = unsafe { SCREEN_HEIGHT };
+    use core::sync::atomic::Ordering;
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
 
     for row in 0..CH {
         for col in 0..CW {

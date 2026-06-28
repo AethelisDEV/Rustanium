@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Bare-Metal System Command Shell Parser
 //!
 //! Provides the parser, dispatcher, and underlying logic for the microkernel's
@@ -71,15 +74,11 @@ pub fn handle_command(
             }
             match args[0] {
                 "us" => {
-                    unsafe {
-                        crate::interrupts::KEYBOARD_STATE.set_layout(KeyboardLayout::Us);
-                    }
+                    crate::interrupts::KEYBOARD_STATE.lock().set_layout(KeyboardLayout::Us);
                     println!("Keyboard layout switched to US.");
                 }
                 "trq" => {
-                    unsafe {
-                        crate::interrupts::KEYBOARD_STATE.set_layout(KeyboardLayout::Trq);
-                    }
+                    crate::interrupts::KEYBOARD_STATE.lock().set_layout(KeyboardLayout::Trq);
                     println!("Keyboard layout switched to Turkish Q (TRQ).");
                 }
                 other => {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 #[rustfmt::skip]
 pub static FONT_8X16: [[u8; 16]; 128] = {
     let mut font = [[0u8; 16]; 128];

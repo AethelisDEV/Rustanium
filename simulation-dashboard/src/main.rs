@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # AE Rustanium Interactive Telemetry & Control Dashboard
 //!
 //! This application serves as the user-facing command visualizer ("Görsel Şölen") for the AE Rustanium OS.

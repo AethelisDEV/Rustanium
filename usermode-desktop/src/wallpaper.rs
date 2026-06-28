@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 use crate::utils::{StrbufWriter, serial_print};
 use crate::state::{WALLPAPER_CACHE, BACK_BUFFER, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_FORMAT};
+use core::sync::atomic::Ordering;
 
 pub fn decode_bmp(bmp_data: &[u8]) -> Result<(), &'static str> {
     {
@@ -26,12 +30,13 @@ pub fn decode_bmp(bmp_data: &[u8]) -> Result<(), &'static str> {
         return Err("Unsupported bits per pixel. Must be 24-bit BGR");
     }
     
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed) as usize;
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed) as usize;
+    let is_bgr = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
+
     unsafe {
         let dest_ptr = core::ptr::addr_of_mut!(WALLPAPER_CACHE.0) as *mut u8;
         let src_ptr = bmp_data.as_ptr();
-        let sw = SCREEN_WIDTH as usize;
-        let sh = SCREEN_HEIGHT as usize;
-        let is_bgr = SCREEN_FORMAT == 0;
         
         for dy in 0..sh {
             // Map destination Y directly to source BGR BMP (bottom-up flip and vertical scale)
@@ -64,10 +69,10 @@ pub fn decode_bmp(bmp_data: &[u8]) -> Result<(), &'static str> {
 }
 
 pub fn draw_wallpaper() {
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed) as usize;
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed) as usize;
+    let size = sw * sh * 3;
     unsafe {
-        let sw = SCREEN_WIDTH as usize;
-        let sh = SCREEN_HEIGHT as usize;
-        let size = sw * sh * 3;
         let src_ptr = core::ptr::addr_of!(WALLPAPER_CACHE.0) as *const u8;
         let dest_ptr = core::ptr::addr_of_mut!(BACK_BUFFER.0) as *mut u8;
         core::ptr::copy_nonoverlapping(src_ptr, dest_ptr, size);

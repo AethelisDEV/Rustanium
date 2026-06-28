@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Triple Modular Redundancy (TMR) Voting Module
 //!
 //! This module implements a Triple Modular Redundancy (TMR) framework for the AE Rustanium kernel.

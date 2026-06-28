@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 use crate::utils::StrbufWriter;
 use crate::syscalls::{sys_open, sys_read, sys_close};
 use crate::atlas_font::{draw_text_atlas, AtlasSize, AtlasWeight};

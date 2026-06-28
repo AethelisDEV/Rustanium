@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # F1 Virtual TTY Console Visual Panels
 //!
 //! Renders the live graphical terminal (TTY) console view:

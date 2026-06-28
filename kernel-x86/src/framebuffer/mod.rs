@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Unified GOP Framebuffer Graphic Drivers Module
 //!
 //! Separates low-level graphics context rendering, monospace bitmap fonts,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Embedded Bitmap Fonts and Sleek Color Spaces
 //!
 //! Provides the core visual style assets for the AE Rustanium GOP display:

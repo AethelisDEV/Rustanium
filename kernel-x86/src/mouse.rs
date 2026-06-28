@@ -1,11 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # PS/2 Mouse Hardware Driver
 //!
 //! Configures the Intel 8042 Keyboard Controller auxiliary interface to communicate
 //! with standard PS/2 mouse devices over IRQ 12. Decodes incoming data packages
 //! in a 3-byte state machine to track pixel coordinate deltas and button states.
 
+use core::sync::atomic::{AtomicI32, AtomicBool, AtomicU8, Ordering};
 use x86_64::instructions::port::Port;
-use core::sync::atomic::{AtomicI32, AtomicBool, Ordering};
 
 /// Screen width bound for clamping mouse coordinates.
 pub const SCREEN_WIDTH: i32 = 1280;
@@ -24,9 +27,9 @@ pub static MOUSE_LEFT_CLICKED: AtomicBool = AtomicBool::new(false);
 /// Atomic state representing whether the mouse Right Button is currently pressed.
 pub static MOUSE_RIGHT_CLICKED: AtomicBool = AtomicBool::new(false);
 
-// State machine trackers for multi-byte PS/2 packet decoding
-static mut MOUSE_CYCLE: u8 = 0;
-static mut MOUSE_PACKET: [u8; 3] = [0; 3];
+// State machine trackers for multi-byte PS/2 packet decoding using atomics
+static MOUSE_CYCLE: AtomicU8 = AtomicU8::new(0);
+static MOUSE_PACKETS: [AtomicU8; 3] = [AtomicU8::new(0), AtomicU8::new(0), AtomicU8::new(0)];
 
 /// Helper to wait until the 8042 Keyboard Controller's input buffer is empty.
 /// Necessary before writing command or data bytes to hardware ports.
@@ -148,76 +151,75 @@ pub fn init_mouse() {
 ///
 /// Updates the global atomic variables `MOUSE_X`, `MOUSE_Y`, and button click states.
 pub fn handle_mouse_interrupt(byte: u8) {
-    unsafe {
-        match MOUSE_CYCLE {
-            0 => {
-                // Bit 3 of the first byte must always be 1 to verify packet synchronization.
-                // If it is 0, we discard this byte as out of sync.
-                if (byte & 0x08) != 0 {
-                    MOUSE_PACKET[0] = byte;
-                    MOUSE_CYCLE = 1;
-                }
+    let cycle = MOUSE_CYCLE.load(Ordering::Relaxed);
+    match cycle {
+        0 => {
+            // Bit 3 of the first byte must always be 1 to verify packet synchronization.
+            // If it is 0, we discard this byte as out of sync.
+            if (byte & 0x08) != 0 {
+                MOUSE_PACKETS[0].store(byte, Ordering::Relaxed);
+                MOUSE_CYCLE.store(1, Ordering::Relaxed);
             }
-            1 => {
-                MOUSE_PACKET[1] = byte;
-                MOUSE_CYCLE = 2;
+        }
+        1 => {
+            MOUSE_PACKETS[1].store(byte, Ordering::Relaxed);
+            MOUSE_CYCLE.store(2, Ordering::Relaxed);
+        }
+        2 => {
+            MOUSE_PACKETS[2].store(byte, Ordering::Relaxed);
+            MOUSE_CYCLE.store(0, Ordering::Relaxed);
+
+            let flags = MOUSE_PACKETS[0].load(Ordering::Relaxed);
+            // Decode signed 8-bit motion values directly using as i8 as i32
+            let dx = MOUSE_PACKETS[1].load(Ordering::Relaxed) as i8 as i32;
+            let dy = MOUSE_PACKETS[2].load(Ordering::Relaxed) as i8 as i32;
+
+            // Check button click flags
+            let left = (flags & 0x01) != 0;
+            let right = (flags & 0x02) != 0;
+            MOUSE_LEFT_CLICKED.store(left, Ordering::Relaxed);
+            MOUSE_RIGHT_CLICKED.store(right, Ordering::Relaxed);
+
+            // Read current coordinate values
+            let old_x = MOUSE_X.load(Ordering::Relaxed);
+            let old_y = MOUSE_Y.load(Ordering::Relaxed);
+
+            // PS/2 mouse coordinate direction mapping:
+            // Relative dx corresponds to positive horizontal steps.
+            // Relative dy corresponds to positive vertical steps pointing UPwards.
+            // Screen coordinates y axis points DOWNwards.
+            let mut new_x = old_x + dx;
+            let mut new_y = old_y - dy;
+
+            // Clamp mouse cursor within display boundary
+            if new_x < 0 {
+                new_x = 0;
             }
-            2 => {
-                MOUSE_PACKET[2] = byte;
-                MOUSE_CYCLE = 0;
-
-                let flags = MOUSE_PACKET[0];
-                // Decode signed 8-bit motion values directly using as i8 as i32
-                let dx = MOUSE_PACKET[1] as i8 as i32;
-                let dy = MOUSE_PACKET[2] as i8 as i32;
-
-                // Check button click flags
-                let left = (flags & 0x01) != 0;
-                let right = (flags & 0x02) != 0;
-                MOUSE_LEFT_CLICKED.store(left, Ordering::Relaxed);
-                MOUSE_RIGHT_CLICKED.store(right, Ordering::Relaxed);
-
-                // Read current coordinate values
-                let old_x = MOUSE_X.load(Ordering::Relaxed);
-                let old_y = MOUSE_Y.load(Ordering::Relaxed);
-
-                // PS/2 mouse coordinate direction mapping:
-                // Relative dx corresponds to positive horizontal steps.
-                // Relative dy corresponds to positive vertical steps pointing UPwards.
-                // Screen coordinates y axis points DOWNwards.
-                let mut new_x = old_x + dx;
-                let mut new_y = old_y - dy;
-
-                // Clamp mouse cursor within display boundary
-                if new_x < 0 {
-                    new_x = 0;
-                }
-                if new_x >= SCREEN_WIDTH {
-                    new_x = SCREEN_WIDTH - 1;
-                }
-                if new_y < 0 {
-                    new_y = 0;
-                }
-                if new_y >= SCREEN_HEIGHT {
-                    new_y = SCREEN_HEIGHT - 1;
-                }
-
-                MOUSE_X.store(new_x, Ordering::Relaxed);
-                MOUSE_Y.store(new_y, Ordering::Relaxed);
-
-                let event = usermode_x86::syscall::InputEvent {
-                    event_type: 2, // Mouse
-                    keyboard_key: 0,
-                    mouse_x: new_x,
-                    mouse_y: new_y,
-                    mouse_left_clicked: if left { 1 } else { 0 },
-                    mouse_right_clicked: if right { 1 } else { 0 },
-                };
-                crate::interrupts::push_input_event(event);
+            if new_x >= SCREEN_WIDTH {
+                new_x = SCREEN_WIDTH - 1;
             }
-            _ => {
-                MOUSE_CYCLE = 0;
+            if new_y < 0 {
+                new_y = 0;
             }
+            if new_y >= SCREEN_HEIGHT {
+                new_y = SCREEN_HEIGHT - 1;
+            }
+
+            MOUSE_X.store(new_x, Ordering::Relaxed);
+            MOUSE_Y.store(new_y, Ordering::Relaxed);
+
+            let event = usermode_x86::syscall::InputEvent {
+                event_type: 2, // Mouse
+                keyboard_key: 0,
+                mouse_x: new_x,
+                mouse_y: new_y,
+                mouse_left_clicked: if left { 1 } else { 0 },
+                mouse_right_clicked: if right { 1 } else { 0 },
+            };
+            crate::interrupts::push_input_event(event);
+        }
+        _ => {
+            MOUSE_CYCLE.store(0, Ordering::Relaxed);
         }
     }
 }

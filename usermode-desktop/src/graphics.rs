@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 use crate::state::{BACK_BUFFER, SCREEN_FORMAT, SCREEN_WIDTH, SCREEN_HEIGHT};
+use core::sync::atomic::Ordering;
 use crate::font::FONT_8X16;
 
 pub const CORNER_ALPHA_6: [[u8; 6]; 6] = [
@@ -11,59 +15,66 @@ pub const CORNER_ALPHA_6: [[u8; 6]; 6] = [
 ];
 
 pub fn draw_pixel(x: i32, y: i32, r: u8, g: u8, b: u8) {
-    unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-        if x >= 0 && x < sw && y >= 0 && y < sh {
-            let idx = ((y * sw + x) * 3) as usize;
-            if SCREEN_FORMAT == 0 {
-                BACK_BUFFER.0[idx] = b;
-                BACK_BUFFER.0[idx + 1] = g;
-                BACK_BUFFER.0[idx + 2] = r;
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    if x >= 0 && x < sw && y >= 0 && y < sh {
+        let idx = ((y * sw + x) * 3) as usize;
+        let is_format_0 = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
+        unsafe {
+            let buffer = &mut BACK_BUFFER.0;
+            if is_format_0 {
+                buffer[idx] = b;
+                buffer[idx + 1] = g;
+                buffer[idx + 2] = r;
             } else {
-                BACK_BUFFER.0[idx] = r;
-                BACK_BUFFER.0[idx + 1] = g;
-                BACK_BUFFER.0[idx + 2] = b;
+                buffer[idx] = r;
+                buffer[idx + 1] = g;
+                buffer[idx + 2] = b;
             }
         }
     }
 }
 
 pub fn draw_pixel_alpha(x: i32, y: i32, r: u8, g: u8, b: u8, alpha: u8) {
-    unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-        if x >= 0 && x < sw && y >= 0 && y < sh {
-            if alpha == 0 {
-                return;
-            }
-            if alpha == 255 {
-                draw_pixel(x, y, r, g, b);
-                return;
-            }
-            
-            let idx = ((y * sw + x) * 3) as usize;
-            let (dest_r, dest_g, dest_b) = if SCREEN_FORMAT == 0 {
-                (BACK_BUFFER.0[idx + 2], BACK_BUFFER.0[idx + 1], BACK_BUFFER.0[idx])
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    if x >= 0 && x < sw && y >= 0 && y < sh {
+        if alpha == 0 {
+            return;
+        }
+        if alpha == 255 {
+            draw_pixel(x, y, r, g, b);
+            return;
+        }
+        
+        let idx = ((y * sw + x) * 3) as usize;
+        let is_format_0 = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
+        let (dest_r, dest_g, dest_b) = unsafe {
+            let buffer = &BACK_BUFFER.0;
+            if is_format_0 {
+                (buffer[idx + 2], buffer[idx + 1], buffer[idx])
             } else {
-                (BACK_BUFFER.0[idx], BACK_BUFFER.0[idx + 1], BACK_BUFFER.0[idx + 2])
-            };
-            
-            let alpha_u = alpha as u32;
-            let inv_alpha = 255 - alpha_u;
-            
-            let blended_r = (((r as u32 * alpha_u) + (dest_r as u32 * inv_alpha)) / 255) as u8;
-            let blended_g = (((g as u32 * alpha_u) + (dest_g as u32 * inv_alpha)) / 255) as u8;
-            let blended_b = (((b as u32 * alpha_u) + (dest_b as u32 * inv_alpha)) / 255) as u8;
-            
-            if SCREEN_FORMAT == 0 {
-                BACK_BUFFER.0[idx] = blended_b;
-                BACK_BUFFER.0[idx + 1] = blended_g;
-                BACK_BUFFER.0[idx + 2] = blended_r;
+                (buffer[idx], buffer[idx + 1], buffer[idx + 2])
+            }
+        };
+        
+        let alpha_u = alpha as u32;
+        let inv_alpha = 255 - alpha_u;
+        
+        let blended_r = (((r as u32 * alpha_u) + (dest_r as u32 * inv_alpha)) / 255) as u8;
+        let blended_g = (((g as u32 * alpha_u) + (dest_g as u32 * inv_alpha)) / 255) as u8;
+        let blended_b = (((b as u32 * alpha_u) + (dest_b as u32 * inv_alpha)) / 255) as u8;
+        
+        unsafe {
+            let buffer = &mut BACK_BUFFER.0;
+            if is_format_0 {
+                buffer[idx] = blended_b;
+                buffer[idx + 1] = blended_g;
+                buffer[idx + 2] = blended_r;
             } else {
-                BACK_BUFFER.0[idx] = blended_r;
-                BACK_BUFFER.0[idx + 1] = blended_g;
-                BACK_BUFFER.0[idx + 2] = blended_b;
+                buffer[idx] = blended_r;
+                buffer[idx + 1] = blended_g;
+                buffer[idx + 2] = blended_b;
             }
         }
     }
@@ -71,18 +82,17 @@ pub fn draw_pixel_alpha(x: i32, y: i32, r: u8, g: u8, b: u8, alpha: u8) {
 
 pub fn draw_rect(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) {
     if w <= 0 || h <= 0 { return; }
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    let start_y = core::cmp::max(0, y);
+    let end_y = core::cmp::min(sh, y + h);
+    let start_x = core::cmp::max(0, x);
+    let end_x = core::cmp::min(sw, x + w);
+    if start_x >= end_x || start_y >= end_y { return; }
+    
+    let is_bgr = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
     unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-        let start_y = core::cmp::max(0, y);
-        let end_y = core::cmp::min(sh, y + h);
-        let start_x = core::cmp::max(0, x);
-        let end_x = core::cmp::min(sw, x + w);
-        if start_x >= end_x || start_y >= end_y { return; }
-        
         let dest_ptr = core::ptr::addr_of_mut!(BACK_BUFFER.0) as *mut u8;
-        let is_bgr = SCREEN_FORMAT == 0;
-        
         for cy in start_y..end_y {
             let row_offset = (cy * sw) as usize;
             for cx in start_x..end_x {
@@ -103,19 +113,17 @@ pub fn draw_rect(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) {
 
 pub fn draw_rect_alpha(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, alpha: u8) {
     if w <= 0 || h <= 0 { return; }
-    unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-        let start_y = core::cmp::max(0, y);
-        let end_y = core::cmp::min(sh, y + h);
-        let start_x = core::cmp::max(0, x);
-        let end_x = core::cmp::min(sw, x + w);
-        if start_x >= end_x || start_y >= end_y { return; }
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    let start_y = core::cmp::max(0, y);
+    let end_y = core::cmp::min(sh, y + h);
+    let start_x = core::cmp::max(0, x);
+    let end_x = core::cmp::min(sw, x + w);
+    if start_x >= end_x || start_y >= end_y { return; }
 
-        for cy in start_y..end_y {
-            for cx in start_x..end_x {
-                draw_pixel_alpha(cx, cy, r, g, b, alpha);
-            }
+    for cy in start_y..end_y {
+        for cx in start_x..end_x {
+            draw_pixel_alpha(cx, cy, r, g, b, alpha);
         }
     }
 }
@@ -333,74 +341,74 @@ pub fn init_nebula_wallpaper() {
     // Base vertical gradient — deep indigo (top) to near-black navy (bottom)
     draw_gradient(13, 8, 40, 5, 5, 22);
 
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+
+    // Teal nebula cloud — upper-right quadrant
+    for y in 0..(sh * 2 / 3) {
+        let cy = sh / 5;
+        let rel_y = (y - cy).abs();
+        let band = sh / 3;
+        if rel_y >= band { continue; }
+        let fy = 1.0 - rel_y as f32 / band as f32;
+        for x in (sw / 3)..sw {
+            let rel_x = (x - sw / 2).max(0);
+            let fade_x = (rel_x as f32 / (sw as f32 / 2.5)).min(1.0);
+            let a = (fy * fade_x * 55.0) as u8;
+            if a > 1 { draw_pixel_alpha(x, y, 14, 118, 172, a); }
+        }
+    }
+
+    // Violet nebula cloud — center-left area
+    for y in (sh / 5)..(sh * 4 / 5) {
+        let cy = sh / 2;
+        let rel_y = (y - cy).abs();
+        let band = sh * 2 / 5;
+        if rel_y >= band { continue; }
+        let fy = 1.0 - rel_y as f32 / band as f32;
+        for x in 0..(sw * 2 / 3) {
+            let fade_x = 1.0 - x as f32 / (sw as f32 * 2.0 / 3.0);
+            let a = (fy * fade_x * 48.0) as u8;
+            if a > 1 { draw_pixel_alpha(x, y, 88, 28, 142, a); }
+        }
+    }
+
+    // Warm amber glow — bottom-right accent
+    for y in (sh / 2)..sh {
+        let cy = sh * 3 / 4;
+        let rel_y = (y - cy).abs();
+        let band = sh / 5;
+        if rel_y >= band { continue; }
+        let fy = 1.0 - rel_y as f32 / band as f32;
+        for x in (sw * 3 / 5)..sw {
+            let fade_x = (x - sw * 3 / 5) as f32 / (sw as f32 * 2.0 / 5.0);
+            let a = (fy * fade_x * 32.0) as u8;
+            if a > 1 { draw_pixel_alpha(x, y, 182, 78, 18, a); }
+        }
+    }
+
+    // Stars — deterministic PRNG, no system random needed
+    let mut seed: u32 = 0xDEAD_C0DE_u32;
+    for _ in 0..350 {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let sx = (seed >> 15) as i32 % sw;
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let sy = (seed >> 15) as i32 % (sh - 60);
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let bright: u8 = 80 + (seed >> 24) as u8 % 175;
+        draw_pixel(sx, sy, bright, bright, bright);
+        // Occasional soft halo on brighter stars
+        if (seed >> 18) & 7 == 0 {
+            draw_pixel_alpha(sx - 1, sy, bright, bright, bright, 50);
+            draw_pixel_alpha(sx + 1, sy, bright, bright, bright, 50);
+            draw_pixel_alpha(sx, sy - 1, bright, bright, bright, 50);
+            draw_pixel_alpha(sx, sy + 1, bright, bright, bright, 50);
+        }
+    }
+
+    // Snapshot BACK_BUFFER into WALLPAPER_CACHE for per-frame reuse
+    let n = (sw * sh * 3) as usize;
     unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-
-        // Teal nebula cloud — upper-right quadrant
-        for y in 0..(sh * 2 / 3) {
-            let cy = sh / 5;
-            let rel_y = (y - cy).abs();
-            let band = sh / 3;
-            if rel_y >= band { continue; }
-            let fy = 1.0 - rel_y as f32 / band as f32;
-            for x in (sw / 3)..sw {
-                let rel_x = (x - sw / 2).max(0);
-                let fade_x = (rel_x as f32 / (sw as f32 / 2.5)).min(1.0);
-                let a = (fy * fade_x * 55.0) as u8;
-                if a > 1 { draw_pixel_alpha(x, y, 14, 118, 172, a); }
-            }
-        }
-
-        // Violet nebula cloud — center-left area
-        for y in (sh / 5)..(sh * 4 / 5) {
-            let cy = sh / 2;
-            let rel_y = (y - cy).abs();
-            let band = sh * 2 / 5;
-            if rel_y >= band { continue; }
-            let fy = 1.0 - rel_y as f32 / band as f32;
-            for x in 0..(sw * 2 / 3) {
-                let fade_x = 1.0 - x as f32 / (sw as f32 * 2.0 / 3.0);
-                let a = (fy * fade_x * 48.0) as u8;
-                if a > 1 { draw_pixel_alpha(x, y, 88, 28, 142, a); }
-            }
-        }
-
-        // Warm amber glow — bottom-right accent
-        for y in (sh / 2)..sh {
-            let cy = sh * 3 / 4;
-            let rel_y = (y - cy).abs();
-            let band = sh / 5;
-            if rel_y >= band { continue; }
-            let fy = 1.0 - rel_y as f32 / band as f32;
-            for x in (sw * 3 / 5)..sw {
-                let fade_x = (x - sw * 3 / 5) as f32 / (sw as f32 * 2.0 / 5.0);
-                let a = (fy * fade_x * 32.0) as u8;
-                if a > 1 { draw_pixel_alpha(x, y, 182, 78, 18, a); }
-            }
-        }
-
-        // Stars — deterministic PRNG, no system random needed
-        let mut seed: u32 = 0xDEAD_C0DE_u32;
-        for _ in 0..350 {
-            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let sx = (seed >> 15) as i32 % sw;
-            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let sy = (seed >> 15) as i32 % (sh - 60);
-            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let bright: u8 = 80 + (seed >> 24) as u8 % 175;
-            draw_pixel(sx, sy, bright, bright, bright);
-            // Occasional soft halo on brighter stars
-            if (seed >> 18) & 7 == 0 {
-                draw_pixel_alpha(sx - 1, sy, bright, bright, bright, 50);
-                draw_pixel_alpha(sx + 1, sy, bright, bright, bright, 50);
-                draw_pixel_alpha(sx, sy - 1, bright, bright, bright, 50);
-                draw_pixel_alpha(sx, sy + 1, bright, bright, bright, 50);
-            }
-        }
-
-        // Snapshot BACK_BUFFER into WALLPAPER_CACHE for per-frame reuse
-        let n = (sw * sh * 3) as usize;
         let src = core::ptr::addr_of!(crate::BACK_BUFFER.0) as *const u8;
         let dst = core::ptr::addr_of_mut!(crate::WALLPAPER_CACHE.0) as *mut u8;
         core::ptr::copy_nonoverlapping(src, dst, n);
@@ -463,17 +471,15 @@ pub fn draw_tiny_file_icon(x: i32, y: i32) {
 
 
 pub fn draw_gradient(r1: u8, g1: u8, b1: u8, r2: u8, g2: u8, b2: u8) {
-    unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-        for y in 0..sh {
-            let r = r1 as i32 + ((r2 as i32 - r1 as i32) * y) / sh;
-            let g = g1 as i32 + ((g2 as i32 - g1 as i32) * y) / sh;
-            let b = b1 as i32 + ((b2 as i32 - b1 as i32) * y) / sh;
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    for y in 0..sh {
+        let r = r1 as i32 + ((r2 as i32 - r1 as i32) * y) / sh;
+        let g = g1 as i32 + ((g2 as i32 - g1 as i32) * y) / sh;
+        let b = b1 as i32 + ((b2 as i32 - b1 as i32) * y) / sh;
 
-            for x in 0..sw {
-                draw_pixel(x, y, r as u8, g as u8, b as u8);
-            }
+        for x in 0..sw {
+            draw_pixel(x, y, r as u8, g as u8, b as u8);
         }
     }
 }
@@ -573,22 +579,20 @@ pub fn draw_string_smooth(x: i32, y: i32, s: &str, r: u8, g: u8, b: u8, char_w: 
 
 pub fn draw_shadow_rect_alpha(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, alpha: u8, win_x: i32, win_y: i32, win_w: i32, win_h: i32) {
     if w <= 0 || h <= 0 { return; }
-    unsafe {
-        let sw = SCREEN_WIDTH;
-        let sh = SCREEN_HEIGHT;
-        let start_y = core::cmp::max(0, y);
-        let end_y = core::cmp::min(sh, y + h);
-        let start_x = core::cmp::max(0, x);
-        let end_x = core::cmp::min(sw, x + w);
-        if start_x >= end_x || start_y >= end_y { return; }
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    let start_y = core::cmp::max(0, y);
+    let end_y = core::cmp::min(sh, y + h);
+    let start_x = core::cmp::max(0, x);
+    let end_x = core::cmp::min(sw, x + w);
+    if start_x >= end_x || start_y >= end_y { return; }
 
-        for cy in start_y..end_y {
-            for cx in start_x..end_x {
-                if cx >= win_x && cx < win_x + win_w && cy >= win_y && cy < win_y + win_h {
-                    continue;
-                }
-                draw_pixel_alpha(cx, cy, r, g, b, alpha);
+    for cy in start_y..end_y {
+        for cx in start_x..end_x {
+            if cx >= win_x && cx < win_x + win_w && cy >= win_y && cy < win_y + win_h {
+                continue;
             }
+            draw_pixel_alpha(cx, cy, r, g, b, alpha);
         }
     }
 }
@@ -780,63 +784,62 @@ pub fn copy_rect_back_to_fb(fb_ptr: *mut u8, rx: i32, ry: i32, rw: i32, rh: i32,
 
 
 pub fn draw_start_menu(cursor_x: i32, cursor_y: i32, tb_y: i32, progress: f32) {
-    use crate::state::{SCREEN_WIDTH, SCREEN_HEIGHT};
-    unsafe {
-        let (_dock_start_x, _dock_w, _sizes, xs) = crate::taskbar::get_dock_layout(SCREEN_WIDTH, SCREEN_HEIGHT, cursor_x, cursor_y);
-        let launchpad_cx = xs[0] + _sizes[0] / 2.0;
-        let menu_w = 220i32;
-        let menu_h = 185i32;
-        let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-        let radius = 12;
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    let (_dock_start_x, _dock_w, _sizes, xs) = crate::taskbar::get_dock_layout(sw, sh, cursor_x, cursor_y);
+    let launchpad_cx = xs[0] + _sizes[0] / 2.0;
+    let menu_w = 220i32;
+    let menu_h = 185i32;
+    let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
+    let radius = 12;
 
-        let full_y = tb_y - menu_h - 12;
-        let menu_y = (tb_y as f32 + (full_y - tb_y) as f32 * progress) as i32;
+    let full_y = tb_y - menu_h - 12;
+    let menu_y = (tb_y as f32 + (full_y - tb_y) as f32 * progress) as i32;
 
-        // Shadow
-        draw_window_shadow(menu_x, menu_y, menu_w, menu_h);
+    // Shadow
+    draw_window_shadow(menu_x, menu_y, menu_w, menu_h);
 
-        // Dark-glass body (#18181A with high alpha)
-        draw_rounded_rect_alpha(menu_x, menu_y, menu_w, menu_h, radius, 24, 24, 28, 240);
-        // 1px subtle border
-        draw_rounded_rect_outline_alpha(menu_x, menu_y, menu_w, menu_h, radius, 70, 75, 95, 1, 120);
+    // Dark-glass body (#18181A with high alpha)
+    draw_rounded_rect_alpha(menu_x, menu_y, menu_w, menu_h, radius, 24, 24, 28, 240);
+    // 1px subtle border
+    draw_rounded_rect_outline_alpha(menu_x, menu_y, menu_w, menu_h, radius, 70, 75, 95, 1, 120);
 
-        // Header — Inter Regular, spaced out!
-        let header_title = "L A U N C H P A D";
-        let tw = crate::atlas_font::measure_text(header_title, crate::atlas_font::AtlasSize::Small, crate::atlas_font::AtlasWeight::Regular);
-        let tx = menu_x + (menu_w - tw) / 2;
-        crate::atlas_font::draw_text_atlas(
-            tx, menu_y + 12,
-            header_title,
-            210, 220, 235,
-            crate::atlas_font::AtlasSize::Small,
-            crate::atlas_font::AtlasWeight::Regular,
-        );
-        // Separator
-        draw_rect_alpha(menu_x + 12, menu_y + 34, menu_w - 24, 1, 60, 65, 80, 100);
+    // Header — Inter Regular, spaced out!
+    let header_title = "L A U N C H P A D";
+    let tw = crate::atlas_font::measure_text(header_title, crate::atlas_font::AtlasSize::Small, crate::atlas_font::AtlasWeight::Regular);
+    let tx = menu_x + (menu_w - tw) / 2;
+    crate::atlas_font::draw_text_atlas(
+        tx, menu_y + 12,
+        header_title,
+        210, 220, 235,
+        crate::atlas_font::AtlasSize::Small,
+        crate::atlas_font::AtlasWeight::Regular,
+    );
+    // Separator
+    draw_rect_alpha(menu_x + 12, menu_y + 34, menu_w - 24, 1, 60, 65, 80, 100);
 
-        let items = ["System Monitor", "Files", "Console", "Shut Down"];
-        for (i, item) in items.iter().enumerate() {
-            let iy      = menu_y + 44 + (i as i32) * 33;
-            let hovered = cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
-                          cursor_y >= iy           && cursor_y < iy + 27;
-            if hovered {
-                draw_rounded_rect_alpha(menu_x + 8, iy, menu_w - 16, 27, 6, 61, 174, 233, 255);
-                crate::atlas_font::draw_text_atlas(
-                    menu_x + 18, iy + 6,
-                    item,
-                    255, 255, 255,
-                    crate::atlas_font::AtlasSize::Small,
-                    crate::atlas_font::AtlasWeight::SemiBold,
-                );
-            } else {
-                crate::atlas_font::draw_text_atlas(
-                    menu_x + 18, iy + 6,
-                    item,
-                    190, 200, 215,
-                    crate::atlas_font::AtlasSize::Small,
-                    crate::atlas_font::AtlasWeight::Regular,
-                );
-            }
+    let items = ["System Monitor", "Files", "Console", "Shut Down"];
+    for (i, item) in items.iter().enumerate() {
+        let iy      = menu_y + 44 + (i as i32) * 33;
+        let hovered = cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
+                      cursor_y >= iy           && cursor_y < iy + 27;
+        if hovered {
+            draw_rounded_rect_alpha(menu_x + 8, iy, menu_w - 16, 27, 6, 61, 174, 233, 255);
+            crate::atlas_font::draw_text_atlas(
+                menu_x + 18, iy + 6,
+                item,
+                255, 255, 255,
+                crate::atlas_font::AtlasSize::Small,
+                crate::atlas_font::AtlasWeight::SemiBold,
+            );
+        } else {
+            crate::atlas_font::draw_text_atlas(
+                menu_x + 18, iy + 6,
+                item,
+                190, 200, 215,
+                crate::atlas_font::AtlasSize::Small,
+                crate::atlas_font::AtlasWeight::Regular,
+            );
         }
     }
 }

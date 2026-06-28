@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 use crate::utils::StrbufWriter;
 use crate::atlas_font::{draw_text_atlas, AtlasSize, AtlasWeight};
 use crate::graphics::{
@@ -11,6 +14,7 @@ use crate::graphics::{
 use crate::state::{START_MENU_OPEN, START_MENU_ANIMATING, START_MENU_ANIM_PROGRESS};
 use crate::window::WINDOWS;
 use crate::syscalls::SharedSystemInfo;
+use core::sync::atomic::Ordering;
 
 /// Calculate the dynamic, magnified layout coordinates of the Dock.
 /// Returns: (start_x, total_w, sizes, xs)
@@ -75,11 +79,9 @@ pub fn draw_taskbar(
     // Stats on the right
     let mut stats_buf = [0u8; 64];
     let mut stats_writer = StrbufWriter::new(&mut stats_buf);
-    unsafe {
-        let cpu_load = (*shared_info).cpu_usage;
-        let heap_used = (*shared_info).heap_used;
-        let _ = core::fmt::write(&mut stats_writer, format_args!("CPU {}.{:02}%   RAM {} MB used", cpu_load / 100, cpu_load % 100, heap_used / 1024 / 1024));
-    }
+    let cpu_load = unsafe { (*shared_info).cpu_usage.load(Ordering::Relaxed) };
+    let heap_used = unsafe { (*shared_info).heap_used.load(Ordering::Relaxed) };
+    let _ = core::fmt::write(&mut stats_writer, format_args!("CPU {}.{:02}%   RAM {} MB used", cpu_load / 100, cpu_load % 100, heap_used / 1024 / 1024));
     draw_text_atlas(sw - 230, 5, stats_writer.as_str(), 190, 200, 220, AtlasSize::Small, AtlasWeight::Regular);
 
     // ────────────────────────────────────────────────────────
@@ -154,9 +156,10 @@ pub fn draw_taskbar(
     // ────────────────────────────────────────────────────────
     // 4. Render Launchpad (Start Menu) if active
     // ────────────────────────────────────────────────────────
-    unsafe {
-        if START_MENU_OPEN || START_MENU_ANIMATING {
-            draw_start_menu(cursor_x, cursor_y, dock_y, START_MENU_ANIM_PROGRESS);
-        }
+    let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+    let start_menu_animating = START_MENU_ANIMATING.load(Ordering::Relaxed);
+    let progress = f32::from_bits(START_MENU_ANIM_PROGRESS.load(Ordering::Relaxed));
+    if start_menu_open || start_menu_animating {
+        draw_start_menu(cursor_x, cursor_y, dock_y, progress);
     }
 }

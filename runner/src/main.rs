@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 use std::path::PathBuf;
 use std::process::Command;
 use anyhow::{anyhow, Context, Result};

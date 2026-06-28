@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # x86-64 Bare-Metal System Call (Syscall) Interface
 //!
 //! This module configures model-specific registers (MSRs) and handles raw system calls
 //! initiated by Ring 3 user programs via the `syscall` assembly instruction.
 
 use x86_64::registers::model_specific::Msr;
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 /// Model-Specific Register for Extended Feature Enable Register (EFER).
 pub const MSR_EFER: u32 = 0xC0000080;
@@ -16,15 +20,15 @@ pub const MSR_FMASK: u32 = 0xC0000084;
 
 /// Temporary static buffer to store the User stack pointer (RSP) during active Syscall executions.
 #[no_mangle]
-pub static mut USER_RSP: u64 = 0;
+pub static USER_RSP: AtomicU64 = AtomicU64::new(0);
 
 /// Static pointer to the secure kernel stack top used to switch execution contexts on Syscall entry.
 #[no_mangle]
-pub static mut KERNEL_STACK_TOP: u64 = 0;
+pub static KERNEL_STACK_TOP: AtomicU64 = AtomicU64::new(0);
 
 /// Global dynamic system call handler registered from the main kernel at boot.
 #[no_mangle]
-pub static mut SYSCALL_HANDLER: usize = 0;
+pub static SYSCALL_HANDLER: AtomicUsize = AtomicUsize::new(0);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -49,12 +53,12 @@ pub struct InputEvent {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct SharedSystemInfo {
-    pub system_ticks: u64,
-    pub heap_free: u64,
-    pub heap_used: u64,
-    pub cpu_usage: u64,
+    pub system_ticks: AtomicU64,
+    pub heap_free: AtomicU64,
+    pub heap_used: AtomicU64,
+    pub cpu_usage: AtomicU64,
 }
 
 /// Initializes MSR registers to enable and route system calls on x86-64 hardware.
@@ -70,8 +74,8 @@ pub struct SharedSystemInfo {
 /// which can trigger CPU exceptions if descriptors or handlers are invalid.
 pub unsafe fn init_syscalls(kernel_stack_top: u64, handler: extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64) {
     // 1. Populate the secure kernel stack top and the dynamic syscall handler callback
-    KERNEL_STACK_TOP = kernel_stack_top;
-    SYSCALL_HANDLER = handler as usize;
+    KERNEL_STACK_TOP.store(kernel_stack_top, Ordering::Relaxed);
+    SYSCALL_HANDLER.store(handler as usize, Ordering::Relaxed);
 
     // 2. Enable System Call Extensions inside EFER
     let mut efer_msr = Msr::new(MSR_EFER);

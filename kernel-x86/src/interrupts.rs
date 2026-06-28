@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Interrupts Management for AE Rustanium
 //!
 //! This module configures the low-level x86-64 interrupt architecture:
@@ -209,11 +212,7 @@ pub static TIMER_TICKS: core::sync::atomic::AtomicUsize = core::sync::atomic::At
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let ticks = TIMER_TICKS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
     crate::SYSTEM_TICKS.store(ticks, core::sync::atomic::Ordering::Relaxed);
-    unsafe {
-        let page_ptr = core::ptr::addr_of_mut!(crate::syscall::SHARED_INFO_PAGE);
-        let ticks_ptr = core::ptr::addr_of_mut!((*page_ptr).info.system_ticks);
-        ticks_ptr.write(ticks as u64);
-    }
+    crate::syscall::SHARED_INFO_PAGE.info.system_ticks.store(ticks as u64, core::sync::atomic::Ordering::Relaxed);
     unsafe {
         PICS.notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
     }
@@ -273,41 +272,41 @@ pub fn pop_input_event(event_out: &mut usermode_x86::syscall::InputEvent) -> boo
 }
 
 /// Static buffer holding keyboard inputs received asynchronously.
-pub static mut KEYBOARD_BUFFER: Option<crate::keyboard::KeyboardInput> = None;
+pub static KEYBOARD_BUFFER: crate::Spinlock<Option<crate::keyboard::KeyboardInput>> = crate::Spinlock::new(None);
 /// Static manager tracking shifting states for keyboard decoding.
-pub static mut KEYBOARD_STATE: crate::keyboard::KeyboardState = crate::keyboard::KeyboardState::new();
+pub static KEYBOARD_STATE: crate::Spinlock<crate::keyboard::KeyboardState> = crate::Spinlock::new(crate::keyboard::KeyboardState::new());
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    unsafe {
-        let mut data_port: Port<u8> = Port::new(0x60);
-        let scancode = data_port.read();
-        if let Some(input) = KEYBOARD_STATE.handle_scancode(scancode) {
-            let mut key_val = 0;
-            match input {
-                crate::keyboard::KeyboardInput::Char(c) => key_val = c as u32,
-                crate::keyboard::KeyboardInput::Backspace => key_val = 0x1000,
-                crate::keyboard::KeyboardInput::Enter => key_val = 0x1001,
-                crate::keyboard::KeyboardInput::F1 => key_val = 0x1002,
-                crate::keyboard::KeyboardInput::F2 => key_val = 0x1003,
-                crate::keyboard::KeyboardInput::F3 => key_val = 0x1004,
-                crate::keyboard::KeyboardInput::F4 => key_val = 0x1005,
-                crate::keyboard::KeyboardInput::PageUp => key_val = 0x1006,
-                crate::keyboard::KeyboardInput::PageDown => key_val = 0x1007,
-                crate::keyboard::KeyboardInput::ArrowUp => key_val = 0x1008,
-                crate::keyboard::KeyboardInput::ArrowDown => key_val = 0x1009,
-            }
-            let event = usermode_x86::syscall::InputEvent {
-                event_type: 1, // Keyboard
-                keyboard_key: key_val,
-                mouse_x: 0,
-                mouse_y: 0,
-                mouse_left_clicked: 0,
-                mouse_right_clicked: 0,
-            };
-            push_input_event(event);
-
-            KEYBOARD_BUFFER = Some(input);
+    let mut data_port: Port<u8> = Port::new(0x60);
+    let scancode = unsafe { data_port.read() };
+    if let Some(input) = KEYBOARD_STATE.lock().handle_scancode(scancode) {
+        let mut key_val = 0;
+        match input {
+            crate::keyboard::KeyboardInput::Char(c) => key_val = c as u32,
+            crate::keyboard::KeyboardInput::Backspace => key_val = 0x1000,
+            crate::keyboard::KeyboardInput::Enter => key_val = 0x1001,
+            crate::keyboard::KeyboardInput::F1 => key_val = 0x1002,
+            crate::keyboard::KeyboardInput::F2 => key_val = 0x1003,
+            crate::keyboard::KeyboardInput::F3 => key_val = 0x1004,
+            crate::keyboard::KeyboardInput::F4 => key_val = 0x1005,
+            crate::keyboard::KeyboardInput::PageUp => key_val = 0x1006,
+            crate::keyboard::KeyboardInput::PageDown => key_val = 0x1007,
+            crate::keyboard::KeyboardInput::ArrowUp => key_val = 0x1008,
+            crate::keyboard::KeyboardInput::ArrowDown => key_val = 0x1009,
         }
+        let event = usermode_x86::syscall::InputEvent {
+            event_type: 1, // Keyboard
+            keyboard_key: key_val,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_left_clicked: 0,
+            mouse_right_clicked: 0,
+        };
+        push_input_event(event);
+
+        *KEYBOARD_BUFFER.lock() = Some(input);
+    }
+    unsafe {
         PICS.notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
     }
 }

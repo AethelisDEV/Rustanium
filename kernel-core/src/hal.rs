@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Hardware Abstraction Layer (HAL) for AE Rustanium
 //!
 //! This module decouples our pure, safe microkernel logic from low-level CPU operations.

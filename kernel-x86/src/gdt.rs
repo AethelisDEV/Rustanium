@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Global Descriptor Table (GDT) and Task State Segment (TSS) for Ring 3 Isolation
 //!
 //! This module defines and initializes a custom GDT and TSS on the bare-metal x86-64 CPU:

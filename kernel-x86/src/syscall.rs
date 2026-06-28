@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # System Call Handlers and File Descriptor Management for Ring 0/3 Isolation
 //!
 //! Implements VFS syscalls (SYS_OPEN, SYS_READ, SYS_WRITE, SYS_CLOSE) using
-//! raw pointer manipulation to avoid UB (no direct &mut references to static muts).
+//! a safe Spinlock interface to avoid data races and UB.
 //! Validates user-space pointer bounds to ensure Ring 3 code cannot map or corrupt kernel memory.
 
 use alloc::string::String;
@@ -24,12 +27,12 @@ pub struct OpenFile {
     pub offset: usize,
 }
 
-pub static mut FD_TABLE: [Option<OpenFile>; 16] = [
+pub static FD_TABLE: crate::Spinlock<[Option<OpenFile>; 16]> = crate::Spinlock::new([
     None, None, None, None,
     None, None, None, None,
     None, None, None, None,
     None, None, None, None,
-];
+]);
 
 #[repr(C, align(4096))]
 pub struct SharedInfoPage {
@@ -45,12 +48,12 @@ const _: () = {
     }
 };
 
-pub static mut SHARED_INFO_PAGE: SharedInfoPage = SharedInfoPage {
+pub static SHARED_INFO_PAGE: SharedInfoPage = SharedInfoPage {
     info: usermode_x86::syscall::SharedSystemInfo {
-        system_ticks: 0,
-        heap_free: 0,
-        heap_used: 0,
-        cpu_usage: 0,
+        system_ticks: core::sync::atomic::AtomicU64::new(0),
+        heap_free: core::sync::atomic::AtomicU64::new(0),
+        heap_used: core::sync::atomic::AtomicU64::new(0),
+        cpu_usage: core::sync::atomic::AtomicU64::new(0),
     },
     padding: [0; 4096 - core::mem::size_of::<usermode_x86::syscall::SharedSystemInfo>()],
 };
@@ -286,17 +289,13 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                     }
                 }
 
-                let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
+                let mut fd_table = FD_TABLE.lock();
                 for i in 3..16 {
-                    let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[i]) };
-                    let is_none = unsafe { (*slot_ptr).is_none() };
-                    if is_none {
-                        unsafe {
-                            slot_ptr.write(Some(OpenFile {
-                                path: String::from(path_str),
-                                offset: 0,
-                            }));
-                        }
+                    if fd_table[i].is_none() {
+                        fd_table[i] = Some(OpenFile {
+                            path: String::from(path_str),
+                            offset: 0,
+                        });
                         return i as u64;
                     }
                 }
@@ -352,13 +351,12 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 return 0;
             }
 
-            let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
-            let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[fd]) };
             let mut file_path = None;
             let mut offset = 0;
 
-            unsafe {
-                if let Some(ref file) = *slot_ptr {
+            {
+                let fd_table = FD_TABLE.lock();
+                if let Some(ref file) = fd_table[fd] {
                     file_path = Some(file.path.clone());
                     offset = file.offset;
                 }
@@ -404,8 +402,9 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                                 to_read,
                             );
                         }
-                        unsafe {
-                            if let Some(ref mut file) = *slot_ptr {
+                        {
+                            let mut fd_table = FD_TABLE.lock();
+                            if let Some(ref mut file) = fd_table[fd] {
                                 file.offset = offset + to_read;
                             }
                         }
@@ -426,9 +425,9 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                                     to_read,
                                 );
                             }
-                            // Update offset securely using pointer access
-                            unsafe {
-                                if let Some(ref mut file) = *slot_ptr {
+                            {
+                                let mut fd_table = FD_TABLE.lock();
+                                if let Some(ref mut file) = fd_table[fd] {
                                     file.offset = offset + to_read;
                                 }
                             }
@@ -481,13 +480,12 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 return u64::MAX;
             }
 
-            let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
-            let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[fd]) };
             let mut file_path = None;
             let mut offset = 0;
 
-            unsafe {
-                if let Some(ref file) = *slot_ptr {
+            {
+                let fd_table = FD_TABLE.lock();
+                if let Some(ref file) = fd_table[fd] {
                     file_path = Some(file.path.clone());
                     offset = file.offset;
                 }
@@ -509,9 +507,9 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
 
                     match core.vfs.write_file(&path, &data, &mut core.allocator, 1000) {
                         Ok(_) => {
-                            // Update offset securely using pointer access
-                            unsafe {
-                                if let Some(ref mut file) = *slot_ptr {
+                            {
+                                let mut fd_table = FD_TABLE.lock();
+                                if let Some(ref mut file) = fd_table[fd] {
                                     file.offset = new_offset;
                                 }
                             }
@@ -530,13 +528,9 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
             // SYS_CLOSE: RDI=FD
             let fd = arg1 as usize;
             if fd >= 3 && fd < 16 {
-                let fd_table_ptr = core::ptr::addr_of_mut!(FD_TABLE);
-                let slot_ptr = unsafe { core::ptr::addr_of_mut!((*fd_table_ptr)[fd]) };
-                let is_some = unsafe { (*slot_ptr).is_some() };
-                if is_some {
-                    // Safe drop of old OpenFile by replacing it with None using pointer write
-                    let old_file = unsafe { slot_ptr.replace(None) };
-                    drop(old_file);
+                let mut fd_table = FD_TABLE.lock();
+                if fd_table[fd].is_some() {
+                    fd_table[fd] = None;
                     0
                 } else {
                     u64::MAX
@@ -594,7 +588,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
         }
         0x30 => {
             // SYS_GET_SHARED_INFO: returns virtual address of SHARED_INFO_PAGE mapped at user address 0x300000 read-only
-            let page_ptr = core::ptr::addr_of_mut!(SHARED_INFO_PAGE);
+            let page_ptr = core::ptr::addr_of!(SHARED_INFO_PAGE);
             let page_addr = page_ptr as u64;
             unsafe {
                 let phys = usermode_x86::virt_to_phys(page_addr)

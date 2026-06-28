@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Kernel Core Bootstrap & System bus Coordinator
 //!
 //! This module implements the main bootstrap and system ticks execution controller of the AE Rustanium kernel.

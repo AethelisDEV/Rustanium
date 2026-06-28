@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # x86-64 Bare-Metal User Mode (Ring 3) Transition and Paging
 //!
 //! This module implements memory mapping and privilege level transitions:

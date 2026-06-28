@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 use crate::utils::StrbufWriter;
 use crate::atlas_font::{draw_text_atlas, AtlasSize, AtlasWeight};
 use crate::graphics::{draw_rounded_rect, draw_rect_alpha, draw_line_thick};
@@ -6,10 +9,11 @@ use crate::syscalls::SharedSystemInfo;
 
 pub fn draw_monitor_window(ax: i32, ay: i32, shared_info: *const SharedSystemInfo) {
     unsafe {
-        let ticks = (*shared_info).system_ticks;
-        let heap_used = (*shared_info).heap_used;
-        let heap_free = (*shared_info).heap_free;
-        let cpu_usage = (*shared_info).cpu_usage;
+        use core::sync::atomic::Ordering;
+        let ticks = (*shared_info).system_ticks.load(Ordering::Relaxed);
+        let heap_used = (*shared_info).heap_used.load(Ordering::Relaxed);
+        let heap_free = (*shared_info).heap_free.load(Ordering::Relaxed);
+        let cpu_usage = (*shared_info).cpu_usage.load(Ordering::Relaxed);
 
         let mut buf = [0u8; 64];
         

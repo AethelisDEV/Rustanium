@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Asynchronous PS/2 and Serial Keyboard Decoders
 //!
 //! Exposes keyboard input types, physical I/O port polling drivers,
@@ -226,12 +229,12 @@ fn translate_scancode(scancode: u8, shift: bool, layout: KeyboardLayout) -> Opti
 }
 
 pub fn poll_keyboard() -> Option<KeyboardInput> {
-    unsafe {
-        // First check the asynchronous interrupt buffer in case interrupts are active
-        if let Some(input) = crate::interrupts::KEYBOARD_BUFFER.take() {
-            return Some(input);
-        }
+    // First check the asynchronous interrupt buffer in case interrupts are active
+    if let Some(input) = crate::interrupts::KEYBOARD_BUFFER.lock().take() {
+        return Some(input);
+    }
 
+    unsafe {
         let mut status_port: Port<u8> = Port::new(0x64);
         let status = status_port.read();
         // Bit 0: Output buffer full (data is ready to be read from port 0x60)
@@ -247,7 +250,7 @@ pub fn poll_keyboard() -> Option<KeyboardInput> {
             } else {
                 // Standard keyboard scancode
                 x86_64::instructions::interrupts::without_interrupts(|| {
-                    crate::interrupts::KEYBOARD_STATE.handle_scancode(byte)
+                    crate::interrupts::KEYBOARD_STATE.lock().handle_scancode(byte)
                 })
             }
         } else {

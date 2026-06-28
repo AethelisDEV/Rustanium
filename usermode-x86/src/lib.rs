@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 #![no_std]
 
 extern crate alloc;
@@ -15,22 +18,22 @@ pub use usermode::{
 };
 pub use syscall::{init_syscalls, SYSCALL_HANDLER};
 
+use core::sync::atomic::{AtomicPtr, Ordering};
+
 /// Global logger callback to allow clean decoupled logging back to the host kernel console.
-pub static mut LOG_CALLBACK: Option<fn(&str)> = None;
+pub static LOG_CALLBACK: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Sets the active logger callback function.
 pub fn init_logger(callback: fn(&str)) {
-    unsafe {
-        LOG_CALLBACK = Some(callback);
-    }
+    LOG_CALLBACK.store(callback as *mut core::ffi::c_void, Ordering::Relaxed);
 }
 
 /// Dispatches a log message back to the registered console callback.
 pub fn log(msg: &str) {
-    unsafe {
-        if let Some(cb) = LOG_CALLBACK {
-            cb(msg);
-        }
+    let cb_ptr = LOG_CALLBACK.load(Ordering::Relaxed);
+    if !cb_ptr.is_null() {
+        let cb: fn(&str) = unsafe { core::mem::transmute(cb_ptr) };
+        cb(msg);
     }
 }
 

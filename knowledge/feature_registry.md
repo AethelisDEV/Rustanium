@@ -114,6 +114,16 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Rationale**: Aligns the codebase with the Zero Unsafe/Unsafe Isolation guidelines in `AI_GUIDELINES.md` by eliminating unused `unsafe` wrappers around safe functions (e.g. `interrupts::enable`/`disable`) and safe macros (e.g. `core::ptr::addr_of`/`addr_of_mut`).
 * **Location**: `kernel-x86/src/syscall.rs`
 
+### 14. Safe Refactoring of Statics and Unsafe Blocks (Zero Unsafe / Safe Lock Refactoring)
+* **Date**: June 28, 2026
+* **Description**: Extensively refactored `usermode-x86`, `kernel-x86`, and `usermode-desktop` packages to eliminate mutable static variables (`static mut`) and unsafe pointer operations.
+  * **usermode-x86**: Replaced `LOG_CALLBACK` with atomic `AtomicPtr`. Replaced `USER_RSP`, `KERNEL_STACK_TOP`, `SYSCALL_HANDLER`, and all fields of `SharedSystemInfo` with atomics (`AtomicU64`, `AtomicUsize`).
+  * **kernel-x86**: Wrapped `KEYBOARD_BUFFER`, `KEYBOARD_STATE`, and `FD_TABLE` into thread-safe `Spinlock` instances. Converted `MOUSE_CYCLE`, `MOUSE_PACKET` (now `MOUSE_PACKETS`), and `SHARED_INFO_PAGE` to atomic and standard static equivalents.
+  * **usermode-desktop**: Replaced `SCREEN_WIDTH`, `SCREEN_HEIGHT`, `SCREEN_FORMAT`, `START_MENU_OPEN`, `START_MENU_ANIMATING`, `START_MENU_ANIM_PROGRESS`, `TERM_ROW`, and `TERM_COL` with atomic variables (`AtomicI32`, `AtomicU32`, `AtomicBool`, `AtomicUsize`).
+  * **Unsafe Reduction**: Cleaned up and removed over 30 redundant `unsafe` blocks in keyboard handlers, VFS/syscall handlers, mouse drivers, and the desktop rendering/animation loop, achieving maximum compliance with the Zero Unsafe Policy.
+* **Rationale**: Replaces raw pointer dereferences and unsynchronized mutable static access with safe, race-free, and compiler-verified synchronization primitives (locks and atomics).
+* **Location**: All source files in `usermode-x86/src/`, `kernel-x86/src/`, and `usermode-desktop/src/`.
+
 ---
 
 ## 📊 Visual Telemetry & Interface Enhancements

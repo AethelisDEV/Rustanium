@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ScreenInfo {
@@ -21,12 +24,12 @@ pub struct InputEvent {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct SharedSystemInfo {
-    pub system_ticks: u64,
-    pub heap_free: u64,
-    pub heap_used: u64,
-    pub cpu_usage: u64,
+    pub system_ticks: core::sync::atomic::AtomicU64,
+    pub heap_free: core::sync::atomic::AtomicU64,
+    pub heap_used: core::sync::atomic::AtomicU64,
+    pub cpu_usage: core::sync::atomic::AtomicU64,
 }
 
 // ------------------------------------------------------------

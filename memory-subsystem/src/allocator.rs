@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 //! # Safe Memory Allocator & Virtual Physical Memory Module
 //!
 //! This module implements the virtualized physical RAM management layer of the AE Rustanium kernel.

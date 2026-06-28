@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2026 AethelisDEV / Rustix OS. All rights reserved.
+
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt, naked_functions)]
@@ -164,15 +167,9 @@ fn thread_diagnostics() {
 /// Background thread periodically updating system metrics in the Shared Info Page.
 fn thread_metrics_updater() {
     loop {
-        unsafe {
-            let page_ptr = core::ptr::addr_of_mut!(syscall::SHARED_INFO_PAGE);
-            let heap_used_ptr = core::ptr::addr_of_mut!((*page_ptr).info.heap_used);
-            let heap_free_ptr = core::ptr::addr_of_mut!((*page_ptr).info.heap_free);
-            
-            let used = ALLOCATOR.lock().used() as u64;
-            heap_used_ptr.write(used);
-            heap_free_ptr.write((256 * 1024 * 1024 - used as usize) as u64);
-        }
+        let used = ALLOCATOR.lock().used() as u64;
+        syscall::SHARED_INFO_PAGE.info.heap_used.store(used, Ordering::Relaxed);
+        syscall::SHARED_INFO_PAGE.info.heap_free.store((256 * 1024 * 1024 - used as usize) as u64, Ordering::Relaxed);
         scheduler::SCHEDULER.lock().thread_yield();
     }
 }
