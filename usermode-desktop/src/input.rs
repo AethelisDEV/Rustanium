@@ -338,6 +338,39 @@ pub fn handle_input_event(
                                                 *needs_redraw = true;
                                                 dirty_tracker.mark_all_dirty();
                                             }
+                                            
+                                            // Inject Single-Bit Flip (FLIP 1)
+                                            if ry >= 180 && ry <= 236 &&
+                                               rx >= win.width as i32 - 160 && rx <= win.width as i32 - 104 {
+                                                let _ = crate::syscalls::sys_inject_bit_flip(999, 10, 2);
+                                                
+                                                // Trigger file read to activate VFS self-healing
+                                                let fd = crate::syscalls::sys_open("/data/system_info.log".as_ptr(), 21, 0);
+                                                if fd != u64::MAX {
+                                                    let mut temp_buf = [0u8; 128];
+                                                    let _ = crate::syscalls::sys_read(fd, temp_buf.as_mut_ptr(), 128);
+                                                    let _ = crate::syscalls::sys_close(fd);
+                                                }
+                                                *needs_redraw = true;
+                                                dirty_tracker.mark_all_dirty();
+                                            }
+
+                                            // Inject Double-Bit Flip (FLIP 2)
+                                            if ry >= 180 && ry <= 236 &&
+                                               rx >= win.width as i32 - 96 && rx <= win.width as i32 - 40 {
+                                                let _ = crate::syscalls::sys_inject_bit_flip(999, 10, 1);
+                                                let _ = crate::syscalls::sys_inject_bit_flip(999, 10, 5);
+                                                
+                                                // Trigger file read to activate VFS quarantine and relocation
+                                                let fd = crate::syscalls::sys_open("/data/system_info.log".as_ptr(), 21, 0);
+                                                if fd != u64::MAX {
+                                                    let mut temp_buf = [0u8; 128];
+                                                    let _ = crate::syscalls::sys_read(fd, temp_buf.as_mut_ptr(), 128);
+                                                    let _ = crate::syscalls::sys_close(fd);
+                                                }
+                                                *needs_redraw = true;
+                                                dirty_tracker.mark_all_dirty();
+                                            }
                                         }
                                         break;
                                     }

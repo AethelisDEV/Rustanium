@@ -53,6 +53,9 @@ pub static SHARED_INFO_PAGE: SharedInfoPage = SharedInfoPage {
         heap_free: core::sync::atomic::AtomicU64::new(0),
         heap_used: core::sync::atomic::AtomicU64::new(0),
         cpu_usage: core::sync::atomic::AtomicU64::new(0),
+        ecc_corrections: core::sync::atomic::AtomicU64::new(0),
+        pages_quarantined: core::sync::atomic::AtomicU64::new(0),
+        pages_relocated: core::sync::atomic::AtomicU64::new(0),
     },
     padding: [0; 4096 - core::mem::size_of::<usermode_x86::syscall::SharedSystemInfo>()],
 };
@@ -590,6 +593,38 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 usermode_x86::create_user_page_mapping_readonly(x86_64::VirtAddr::new(0x300000), phys);
             }
             0x300000
+        }
+        0x40 => {
+            // SYS_INJECT_BIT_FLIP: RDI = frame_index, RSI = offset, RDX = bit_index
+            // If frame_index is 999, search dynamically for the first page frame allocated to /data/system_info.log
+            let mut frame_index = arg1 as usize;
+            let offset = arg2 as usize;
+            let bit_index = arg3 as u8;
+            
+            let mut core_lock = SYSTEM_CORE.lock();
+            if let Some(ref mut core) = *core_lock {
+                if frame_index == 999 {
+                    if let Ok(inode_idx) = core.vfs.resolve_path("/data/system_info.log") {
+                        if let virtual_fs::InodeType::File { ref blocks, .. } = core.vfs.inodes[inode_idx].inode_type {
+                            if !blocks.is_empty() {
+                                frame_index = blocks[0];
+                            }
+                        }
+                    }
+                }
+                
+                if core.allocator.inject_bit_flip(frame_index, offset, bit_index).is_ok() {
+                    crate::println!(
+                        "\x1B[38;5;208m[BITFLIP] Injected bit flip at Frame {}, Offset {}, Bit {}\x1B[0m",
+                        frame_index, offset, bit_index
+                    );
+                    0
+                } else {
+                    u64::MAX
+                }
+            } else {
+                u64::MAX
+            }
         }
         _ => {
             crate::println!("\x1B[38;5;196m[SYSCALL ERR] Invalid system call ID received: {}\x1B[0m", id);

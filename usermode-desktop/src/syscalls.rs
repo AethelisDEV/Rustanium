@@ -30,6 +30,9 @@ pub struct SharedSystemInfo {
     pub heap_free: core::sync::atomic::AtomicU64,
     pub heap_used: core::sync::atomic::AtomicU64,
     pub cpu_usage: core::sync::atomic::AtomicU64,
+    pub ecc_corrections: core::sync::atomic::AtomicU64,
+    pub pages_quarantined: core::sync::atomic::AtomicU64,
+    pub pages_relocated: core::sync::atomic::AtomicU64,
 }
 
 // ------------------------------------------------------------
@@ -128,5 +131,9 @@ pub fn sys_mkdir(path: *const u8, len: usize) -> u64 {
 
 pub fn sys_get_shared_info() -> *const SharedSystemInfo {
     syscall0(0x30) as *const SharedSystemInfo
+}
+
+pub fn sys_inject_bit_flip(frame_index: u64, offset: u64, bit_index: u64) -> u64 {
+    syscall3(0x40, frame_index, offset, bit_index)
 }
 

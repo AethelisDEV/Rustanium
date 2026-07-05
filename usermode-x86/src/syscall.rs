@@ -59,6 +59,9 @@ pub struct SharedSystemInfo {
     pub heap_free: AtomicU64,
     pub heap_used: AtomicU64,
     pub cpu_usage: AtomicU64,
+    pub ecc_corrections: AtomicU64,
+    pub pages_quarantined: AtomicU64,
+    pub pages_relocated: AtomicU64,
 }
 
 /// Initializes MSR registers to enable and route system calls on x86-64 hardware.
