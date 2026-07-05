@@ -20,3 +20,4 @@ pub static mut CPU_HISTORY: [u8; 40] = [0; 40];
 pub static START_MENU_OPEN: AtomicBool = AtomicBool::new(false);
 pub static START_MENU_ANIMATING: AtomicBool = AtomicBool::new(false);
 pub static START_MENU_ANIM_PROGRESS: AtomicU32 = AtomicU32::new(0); // f32 bit representation
+pub static SHADOWS_ENABLED: AtomicBool = AtomicBool::new(true);

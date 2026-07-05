@@ -124,6 +124,34 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Rationale**: Replaces raw pointer dereferences and unsynchronized mutable static access with safe, race-free, and compiler-verified synchronization primitives (locks and atomics).
 * **Location**: All source files in `usermode-x86/src/`, `kernel-x86/src/`, and `usermode-desktop/src/`.
 
+### 15. Software Renderer & Window Shadow Rendering Optimization (Zero Unsafe Compliance)
+* **Date**: July 05, 2026
+* **Description**: Optimized the rendering of window shadows to resolve UI lag and mouse stutter when multiple windows are open.
+  * **Region Exclusion (`draw_rect_alpha_exclude`)**: Implemented a geometric difference algorithm that splits the shadow drawing rectangle into up to 4 non-overlapping outer boundary slices, completely avoiding looping over or checking pixels inside the window body.
+  * **Concentric Layer Reduction**: Reduced the soft macOS-style shadow depth from 10 concentric layers to 5 layers (using a step-by-2 loop), adjusting the alpha blend formula to preserve smooth visuals.
+  * **Zero Unsafe Compliance**: Implemented all optimization logic in safe Rust without writing any new `unsafe` blocks, fully adhering to the project's safety standard.
+* **Rationale**: Drastically reduces the number of pixels processed during full screen composites (over 100x fewer pixel iterations for standard window shadows), eliminating CPU spikes and mouse latency.
+* **Location**: `usermode-desktop/src/graphics.rs`
+
+### 16. System Settings Application and Window Shadow Toggle
+* **Date**: July 05, 2026
+* **Description**: Added a System Settings application window to the desktop environment allowing users to configure rendering behaviors dynamically.
+  * **Settings Application (`settings.rs`)**: Renders the desktop performance panel featuring a clean, modern iOS-style toggle switch card for drop shadows.
+  * **Interactive Switch**: Captures clicks inside the Settings window body to dynamically toggle the atomic `SHADOWS_ENABLED` state.
+  * **Icon Integration**: Extended the macOS magnified Dock to 5 items and added a modern vector slider-control/settings icon (`draw_vector_settings_icon`).
+  * **Launchpad & Workspace integration**: Registered settings window in `WINDOWS` array, mapped the launch action in the Launchpad menu, and scaled the Launchpad height to support 5 options.
+* **Rationale**: Gives users a dynamic, graphical control to disable expensive shadow blending, boosting performance on lower-end physical hardware.
+* **Location**: `usermode-desktop/src/settings.rs` & `usermode-desktop/src/main.rs`
+
+### 17. Desktop Icons Removal and Clean UI Refinement
+* **Date**: July 05, 2026
+* **Description**: Overhauled the desktop interface by removing the static sidebar shortcuts (Files, Terminal, Monitor) from the screen.
+  * **Rendering cleanup**: Deleted `draw_icon` calls and text labels for the three desktop sidebar icons in `main.rs`.
+  * **Input handling cleanup**: Removed the background click detection region in `main.rs` that previously mapped clicks in the top-left area to launching/focusing corresponding windows, ensuring background clicks only perform unfocusing actions.
+  * **Imports optimization**: Removed the unused `use atlas_font::*;` statement in `main.rs`.
+* **Rationale**: Cleans up the desktop interface to showcase the nebula wallpaper and relies exclusively on the modern Dock and Launchpad for window launching, matching contemporary visual paradigms.
+* **Location**: `usermode-desktop/src/main.rs`
+
 ---
 
 ## 📊 Visual Telemetry & Interface Enhancements

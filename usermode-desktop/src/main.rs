@@ -24,18 +24,19 @@ pub mod wallpaper;
 pub mod monitor;
 pub mod taskbar;
 pub mod file_manager;
+pub mod settings;
 
 use syscalls::*;
 use graphics::*;
 use window::*;
 use console::*;
-use atlas_font::*;
 use utils::*;
 use state::*;
 use wallpaper::*;
 use monitor::*;
 use taskbar::*;
 use file_manager::*;
+use settings::*;
 
 use core::sync::atomic::Ordering;
 
@@ -177,6 +178,26 @@ extern "C" fn main_rust() -> ! {
             anim_progress: 100,
             anim_direction: true,
         });
+
+        WINDOWS[3] = Some(Window {
+            id: 3,
+            title: "Settings",
+            x: 320,
+            y: 160,
+            width: 440,
+            height: 280,
+            is_dragging: false,
+            is_focused: false,
+            is_open: false,
+            is_maximized: false,
+            prev_x: 320,
+            prev_y: 160,
+            prev_w: 440,
+            prev_h: 280,
+            is_animating: false,
+            anim_progress: 100,
+            anim_direction: true,
+        });
     }
 
     let mut cursor_x: i32 = 640;
@@ -290,14 +311,14 @@ extern "C" fn main_rust() -> ! {
                             if start_menu_open && !start_menu_animating {
                                 let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
                                 let menu_w = 220i32;
-                                let menu_h = 185i32;
+                                let menu_h = 220i32;
                                 let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
                                 let menu_y = dock_y - menu_h - 12;
                                 
                                 if cursor_x >= menu_x && cursor_x < menu_x + menu_w &&
                                    cursor_y >= menu_y && cursor_y < menu_y + menu_h {
                                     event_consumed = true;
-                                    for i in 0..4 {
+                                    for i in 0..5 {
                                         let iy = menu_y + 44 + (i as i32) * 33;
                                         if cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
                                            cursor_y >= iy && cursor_y < iy + 27 {
@@ -308,6 +329,8 @@ extern "C" fn main_rust() -> ! {
                                             } else if i == 2 {
                                                 focus_window_by_id(1); // Console
                                             } else if i == 3 {
+                                                focus_window_by_id(3); // Settings
+                                            } else if i == 4 {
                                                 sys_write(2, "Shutting down system...\n".as_ptr(), 24);
                                                 syscall0(3);
                                             }
@@ -337,7 +360,7 @@ extern "C" fn main_rust() -> ! {
                                     
                                     event_consumed = true;
                                     
-                                    for i in 0..4 {
+                                    for i in 0..5 {
                                         let item_x = dock_xs[i];
                                         let item_size = dock_sizes[i];
                                         if cursor_x >= item_x as i32 && cursor_x < (item_x + item_size) as i32 {
@@ -350,6 +373,7 @@ extern "C" fn main_rust() -> ! {
                                                     1 => 0, // Metrics
                                                     2 => 2, // Files
                                                     3 => 1, // Console
+                                                    4 => 3, // Settings
                                                     _ => 0,
                                                 };
                                                 
@@ -465,6 +489,22 @@ extern "C" fn main_rust() -> ! {
                                                 } else if hit_test_body(win, cursor_x, cursor_y) {
                                                     clicked_idx = Some(i);
                                                     drag_started = false;
+                                                    
+                                                    // Handle Settings application interactive clicks
+                                                    if win.id == 3 {
+                                                        let (ax, ay) = win.get_animated_pos();
+                                                        let rx = cursor_x - ax;
+                                                        let ry = cursor_y - ay;
+                                                        
+                                                        // Toggle shadows: card is at X: [24, win.width - 24], Y: [110, 166]
+                                                        if rx >= 24 && rx <= (win.width as i32 - 24) &&
+                                                           ry >= 110 && ry <= 166 {
+                                                            let shadows_on = SHADOWS_ENABLED.load(Ordering::Relaxed);
+                                                            SHADOWS_ENABLED.store(!shadows_on, Ordering::Relaxed);
+                                                            needs_redraw = true;
+                                                        }
+                                                    }
+                                                    
                                                     break;
                                                 }
                                             }
@@ -498,17 +538,6 @@ extern "C" fn main_rust() -> ! {
                                             if let Some(ref mut w) = WINDOWS[j] {
                                                 w.is_focused = false;
                                                 w.is_dragging = false;
-                                            }
-                                        }
-                                        
-                                        // Check if we clicked on desktop icons!
-                                        if cursor_x >= 40 && cursor_x < 72 {
-                                            if cursor_y >= 40 && cursor_y < 72 {
-                                                focus_window_by_id(2);
-                                            } else if cursor_y >= 120 && cursor_y < 152 {
-                                                focus_window_by_id(1);
-                                            } else if cursor_y >= 200 && cursor_y < 232 {
-                                                focus_window_by_id(0);
                                             }
                                         }
                                     }
@@ -679,24 +708,7 @@ extern "C" fn main_rust() -> ! {
             // Blit the cached nebula wallpaper as the first layer
             draw_wallpaper();
 
-            // Desktop sidebar icons — 48px size, more vertical spacing
-            let icon_x = 20;
-            let icon_center = icon_x + 22; // 20 + 22 = 42
 
-            // Icon 0: Files
-            draw_icon(0, icon_x, 30);
-            let w0 = measure_text("Files", AtlasSize::Small, AtlasWeight::Regular);
-            draw_text_atlas(icon_center - w0 / 2, 84, "Files", 210, 222, 240, AtlasSize::Small, AtlasWeight::Regular);
-
-            // Icon 1: Terminal
-            draw_icon(1, icon_x, 130);
-            let w1 = measure_text("Terminal", AtlasSize::Small, AtlasWeight::Regular);
-            draw_text_atlas(icon_center - w1 / 2, 184, "Terminal", 210, 222, 240, AtlasSize::Small, AtlasWeight::Regular);
-
-            // Icon 2: Monitor
-            draw_icon(2, icon_x, 230);
-            let w2 = measure_text("Monitor", AtlasSize::Small, AtlasWeight::Regular);
-            draw_text_atlas(icon_center - w2 / 2, 284, "Monitor", 210, 222, 240, AtlasSize::Small, AtlasWeight::Regular);
 
             let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
             let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
@@ -721,6 +733,10 @@ extern "C" fn main_rust() -> ! {
 
                         if win.id == 2 {
                             draw_file_manager(ax, ay, win.width, win.height);
+                        }
+
+                        if win.id == 3 {
+                            draw_settings_window(ax, ay, win.width, win.height);
                         }
                     }
                 }

@@ -577,26 +577,127 @@ pub fn draw_string_smooth(x: i32, y: i32, s: &str, r: u8, g: u8, b: u8, char_w: 
     }
 }
 
-pub fn draw_shadow_rect_alpha(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, alpha: u8, win_x: i32, win_y: i32, win_w: i32, win_h: i32) {
+/// Draws an alpha-blended color rectangle onto the back buffer while excluding a specified rectangular sub-region.
+///
+/// This function acts as a geometric clipper, subtracting the exclusion region (typically the window body)
+/// from the target drawing rectangle (typically the shadow area surrounding the window). By partitioning the 
+/// remaining drawable space into up to 4 non-overlapping slices (top, bottom, left, right), it avoids looping
+/// over or checking pixels inside the excluded region. This significantly enhances rendering performance.
+///
+/// # Arguments
+///
+/// * `x` - The starting X-coordinate of the target drawing rectangle.
+/// * `y` - The starting Y-coordinate of the target drawing rectangle.
+/// * `w` - The width of the target drawing rectangle.
+/// * `h` - The height of the target drawing rectangle.
+/// * `r` - The red color component (0-255).
+/// * `g` - The green color component (0-255).
+/// * `b` - The blue color component (0-255).
+/// * `alpha` - The opacity component (0-255).
+/// * `ex` - The starting X-coordinate of the exclusion rectangular region.
+/// * `ey` - The starting Y-coordinate of the exclusion rectangular region.
+/// * `ew` - The width of the exclusion rectangular region.
+/// * `eh` - The height of the exclusion rectangular region.
+///
+/// # Constraints & Edge Cases
+///
+/// * If either the drawing width `w` or height `h` is non-positive, the function immediately exits.
+/// * If the exclusion region does not overlap with the target drawing rectangle, the entire rectangle is drawn normally.
+/// * If the exclusion region completely covers the target drawing rectangle, no drawing commands are executed.
+/// * All coordinate calculations are checked against screen boundaries inside the downstream `draw_rect_alpha`.
+pub fn draw_rect_alpha_exclude(
+    x: i32, y: i32, w: i32, h: i32,
+    r: u8, g: u8, b: u8, alpha: u8,
+    ex: i32, ey: i32, ew: i32, eh: i32
+) {
     if w <= 0 || h <= 0 { return; }
-    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
-    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
-    let start_y = core::cmp::max(0, y);
-    let end_y = core::cmp::min(sh, y + h);
-    let start_x = core::cmp::max(0, x);
-    let end_x = core::cmp::min(sw, x + w);
-    if start_x >= end_x || start_y >= end_y { return; }
 
-    for cy in start_y..end_y {
-        for cx in start_x..end_x {
-            if cx >= win_x && cx < win_x + win_w && cy >= win_y && cy < win_y + win_h {
-                continue;
-            }
-            draw_pixel_alpha(cx, cy, r, g, b, alpha);
-        }
+    let x1 = x;
+    let y1 = y;
+    let x2 = x + w;
+    let y2 = y + h;
+
+    let ex1 = ex;
+    let ey1 = ey;
+    let ex2 = ex + ew;
+    let ey2 = ey + eh;
+
+    // Calculate intersection of target and exclusion rectangles
+    let ix1 = core::cmp::max(x1, ex1);
+    let iy1 = core::cmp::max(y1, ey1);
+    let ix2 = core::cmp::min(x2, ex2);
+    let iy2 = core::cmp::min(y2, ey2);
+
+    // If there is no overlap/intersection, draw the entire rectangle normally
+    if ix1 >= ix2 || iy1 >= iy2 {
+        draw_rect_alpha(x, y, w, h, r, g, b, alpha);
+        return;
+    }
+
+    // Split target rectangle into up to 4 non-overlapping slices excluding the intersection:
+    // 1. Top slice (covers full width above the intersection)
+    if iy1 > y1 {
+        draw_rect_alpha(x1, y1, x2 - x1, iy1 - y1, r, g, b, alpha);
+    }
+    // 2. Bottom slice (covers full width below the intersection)
+    if iy2 < y2 {
+        draw_rect_alpha(x1, iy2, x2 - x1, y2 - iy2, r, g, b, alpha);
+    }
+    // 3. Left slice (covers the region to the left of the intersection, between Y bounds of the intersection)
+    if ix1 > x1 {
+        draw_rect_alpha(x1, iy1, ix1 - x1, iy2 - iy1, r, g, b, alpha);
+    }
+    // 4. Right slice (covers the region to the right of the intersection, between Y bounds of the intersection)
+    if ix2 < x2 {
+        draw_rect_alpha(ix2, iy1, x2 - ix2, iy2 - iy1, r, g, b, alpha);
     }
 }
 
+/// Renders a rectangular shadow block with alpha blending, excluding the window interior.
+///
+/// This serves as an adapter that delegates to `draw_rect_alpha_exclude`, which efficiently
+/// draws only the shadow boundaries without processing the pixels occupied by the window body.
+///
+/// # Arguments
+///
+/// * `x` - The starting X-coordinate of the shadow rectangle.
+/// * `y` - The starting Y-coordinate of the shadow rectangle.
+/// * `w` - The width of the shadow rectangle.
+/// * `h` - The height of the shadow rectangle.
+/// * `r` - Red channel value (0-255).
+/// * `g` - Green channel value (0-255).
+/// * `b` - Blue channel value (0-255).
+/// * `alpha` - Alpha opacity value (0-255).
+/// * `win_x` - The X-coordinate of the window body.
+/// * `win_y` - The Y-coordinate of the window body.
+/// * `win_w` - The width of the window body.
+/// * `win_h` - The height of the window body.
+pub fn draw_shadow_rect_alpha(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, alpha: u8, win_x: i32, win_y: i32, win_w: i32, win_h: i32) {
+    draw_rect_alpha_exclude(x, y, w, h, r, g, b, alpha, win_x, win_y, win_w, win_h);
+}
+
+/// Draws a rounded shadow rectangle with alpha blending while excluding the window body.
+///
+/// This function constructs a complete rounded rectangle representing a shadow layer. It uses
+/// `draw_shadow_rect_alpha` to draw the top, middle, and bottom strip slices, and then computes
+/// anti-aliased sub-pixel coverage for the four rounded corners, ensuring the shadow does not bleed
+/// into the window body.
+///
+/// # Arguments
+///
+/// * `x` - The starting X-coordinate of the shadow box.
+/// * `y` - The starting Y-coordinate of the shadow box.
+/// * `w` - The width of the shadow box.
+/// * `h` - The height of the shadow box.
+/// * `radius` - The corner radius of the shadow box.
+/// * `r` - Red channel value (0-255).
+/// * `g` - Green channel value (0-255).
+/// * `b` - Blue channel value (0-255).
+/// * `alpha` - Alpha opacity value (0-255).
+/// * `win_x` - The X-coordinate of the window body.
+/// * `win_y` - The Y-coordinate of the window body.
+/// * `win_w` - The width of the window body.
+/// * `win_h` - The height of the window body.
 pub fn draw_shadow_rounded_rect_alpha(
     x: i32, y: i32, w: i32, h: i32, radius: i32,
     r: u8, g: u8, b: u8, alpha: u8,
@@ -668,14 +769,29 @@ pub fn draw_shadow_rounded_rect_alpha(
     }
 }
 
-/// Soft multi-layer window shadow — wider and more diffuse than a hard outline.
+/// Draws a soft multi-layer window shadow that is wider and more diffuse than a hard outline.
+///
+/// This function renders a smooth, macOS-style drop shadow behind the window by executing
+/// concentric layers of shadows. To maintain high rendering frame rates, it employs a 5-layer
+/// strategy (stepping by 2 from 2 to 10 pixels of shadow size) and adjusts the opacity profile 
+/// to maintain a clean visual gradient.
+///
+/// # Arguments
+///
+/// * `win_x` - The starting X-coordinate of the window.
+/// * `win_y` - The starting Y-coordinate of the window.
+/// * `win_w` - The width of the window.
+/// * `win_h` - The height of the window.
 pub fn draw_window_shadow(win_x: i32, win_y: i32, win_w: i32, win_h: i32) {
-    // 10 concentric layers for a clean, subtle macOS-style shadow
-    // Shifted slightly down for natural top-lit appearance
+    if !crate::state::SHADOWS_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    // 5 concentric layers instead of 10 for performance, while preserving visual depth.
+    // Shifted slightly down to simulate a top-down light source.
     let shadow_shift_y = 3; 
-    for d in 1..=10 {
+    for d in (2..=10).step_by(2) {
         let ratio = d as f32 / 10.0;
-        let alpha = (16.0 * (1.0 - ratio * ratio)) as u8;
+        let alpha = (24.0 * (1.0 - ratio * ratio)) as u8;
         if alpha > 0 {
             draw_shadow_rounded_rect_alpha(
                 win_x - d,
@@ -789,7 +905,7 @@ pub fn draw_start_menu(cursor_x: i32, cursor_y: i32, tb_y: i32, progress: f32) {
     let (_dock_start_x, _dock_w, _sizes, xs) = crate::taskbar::get_dock_layout(sw, sh, cursor_x, cursor_y);
     let launchpad_cx = xs[0] + _sizes[0] / 2.0;
     let menu_w = 220i32;
-    let menu_h = 185i32;
+    let menu_h = 220i32;
     let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
     let radius = 12;
 
@@ -818,7 +934,7 @@ pub fn draw_start_menu(cursor_x: i32, cursor_y: i32, tb_y: i32, progress: f32) {
     // Separator
     draw_rect_alpha(menu_x + 12, menu_y + 34, menu_w - 24, 1, 60, 65, 80, 100);
 
-    let items = ["System Monitor", "Files", "Console", "Shut Down"];
+    let items = ["System Monitor", "Files", "Console", "Settings", "Shut Down"];
     for (i, item) in items.iter().enumerate() {
         let iy      = menu_y + 44 + (i as i32) * 33;
         let hovered = cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
@@ -952,5 +1068,44 @@ pub fn draw_vector_metrics_icon(x: i32, y: i32, size: i32) {
         bar_r.max(1),
         180, 100, 230, 255
     );
+}
+
+/// Draws a modern vector slider-control/settings icon.
+///
+/// This icon consists of a dark background containing three horizontal slider tracks with active knobs,
+/// representing modern desktop performance configuration controls.
+///
+/// # Arguments
+///
+/// * `x` - The starting X-coordinate of the icon.
+/// * `y` - The starting Y-coordinate of the icon.
+/// * `size` - The size of the icon bounding box.
+pub fn draw_vector_settings_icon(x: i32, y: i32, size: i32) {
+    let r = (size as f32 * 0.15) as i32;
+    // Base card
+    draw_rounded_rect_alpha(x, y, size, size, r.max(3), 44, 48, 64, 255);
+    draw_rounded_rect_outline_alpha(x, y, size, size, r.max(3), 110, 115, 140, 1, 100);
+    
+    // Sliders
+    let track_w = (size as f32 * 0.6) as i32;
+    let track_x = x + (size as f32 * 0.2) as i32;
+    let start_y = y + (size as f32 * 0.25) as i32;
+    let step_y = (size as f32 * 0.25) as i32;
+    
+    for i in 0..3 {
+        let ty = start_y + i * step_y;
+        // Track line
+        draw_rounded_rect_alpha(track_x, ty, track_w, 2, 1, 80, 85, 105, 180);
+        
+        let knob_offset = match i {
+            0 => (size as f32 * 0.3) as i32,
+            1 => (size as f32 * 0.5) as i32,
+            2 => (size as f32 * 0.2) as i32,
+            _ => 0,
+        };
+        let knob_x = track_x + knob_offset;
+        // Active knob
+        draw_rounded_rect_alpha(knob_x - 4, ty - 3, 8, 8, 4, 61, 174, 233, 255);
+    }
 }
 

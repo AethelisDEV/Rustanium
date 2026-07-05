@@ -9,7 +9,7 @@ use crate::graphics::{
 };
 use crate::graphics::{
     draw_vector_launchpad_icon, draw_vector_metrics_icon, draw_vector_folder_icon,
-    draw_vector_terminal_icon
+    draw_vector_terminal_icon, draw_vector_settings_icon
 };
 use crate::state::{START_MENU_OPEN, START_MENU_ANIMATING, START_MENU_ANIM_PROGRESS};
 use crate::window::WINDOWS;
@@ -18,21 +18,21 @@ use core::sync::atomic::Ordering;
 
 /// Calculate the dynamic, magnified layout coordinates of the Dock.
 /// Returns: (start_x, total_w, sizes, xs)
-pub fn get_dock_layout(sw: i32, sh: i32, cursor_x: i32, cursor_y: i32) -> (f32, f32, [f32; 4], [f32; 4]) {
+pub fn get_dock_layout(sw: i32, sh: i32, cursor_x: i32, cursor_y: i32) -> (f32, f32, [f32; 5], [f32; 5]) {
     let base_size = 42.0f32;
     let max_size = 64.0f32;
     let spacing = 14.0f32;
     let range = 120.0f32;
     
     let unscaled_item_w = base_size + spacing;
-    let unscaled_total_w = 4.0 * unscaled_item_w + spacing;
+    let unscaled_total_w = 5.0 * unscaled_item_w + spacing;
     let unscaled_start_x = (sw as f32 - unscaled_total_w) / 2.0;
     
     // Magnification only triggers if cursor is near the bottom area
     let near_dock = cursor_y >= (sh - 100);
     
-    let mut sizes = [0.0f32; 4];
-    for i in 0..4 {
+    let mut sizes = [0.0f32; 5];
+    for i in 0..5 {
         let unscaled_cx = unscaled_start_x + spacing + (i as f32) * unscaled_item_w + base_size / 2.0;
         let dist_x = (cursor_x as f32 - unscaled_cx).abs();
         if near_dock && dist_x < range {
@@ -45,14 +45,17 @@ pub fn get_dock_layout(sw: i32, sh: i32, cursor_x: i32, cursor_y: i32) -> (f32, 
         }
     }
     
-    let total_w = spacing + sizes[0] + spacing + sizes[1] + spacing + sizes[2] + spacing + sizes[3] + spacing;
+    let mut total_w = spacing;
+    for i in 0..5 {
+        total_w += sizes[i] + spacing;
+    }
     let start_x = (sw as f32 - total_w) / 2.0;
     
-    let mut xs = [0.0f32; 4];
+    let mut xs = [0.0f32; 5];
     xs[0] = start_x + spacing;
-    xs[1] = xs[0] + sizes[0] + spacing;
-    xs[2] = xs[1] + sizes[1] + spacing;
-    xs[3] = xs[2] + sizes[2] + spacing;
+    for i in 1..5 {
+        xs[i] = xs[i - 1] + sizes[i - 1] + spacing;
+    }
     
     (start_x, total_w, sizes, xs)
 }
@@ -98,7 +101,7 @@ pub fn draw_taskbar(
     // ────────────────────────────────────────────────────────
     // 3. Render Dock Items
     // ────────────────────────────────────────────────────────
-    for i in 0..4 {
+    for i in 0..5 {
         let size = sizes[i];
         let ix = xs[i] as i32;
         // Align to the bottom of the Dock with an 8px offset
@@ -110,16 +113,18 @@ pub fn draw_taskbar(
             1 => draw_vector_metrics_icon(ix, iy, size as i32),
             2 => draw_vector_folder_icon(ix, iy, size as i32),
             3 => draw_vector_terminal_icon(ix, iy, size as i32),
+            4 => draw_vector_settings_icon(ix, iy, size as i32),
             _ => {}
         }
         
         // Draw active/focused dots below icons
         // Item 0 is Launchpad (always available)
-        // Items 1, 2, 3 correspond to windows with IDs 0, 2, 1
+        // Items 1, 2, 3, 4 correspond to windows with IDs 0, 2, 1, 3
         let win_id = match i {
             1 => Some(0), // Metrics
             2 => Some(2), // Files
             3 => Some(1), // Console
+            4 => Some(3), // Settings
             _ => None,
         };
         
