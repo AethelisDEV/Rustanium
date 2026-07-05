@@ -165,20 +165,15 @@ fn thread_diagnostics() {
 }
 
 /// Background thread periodically updating system metrics in the Shared Info Page.
+///
+/// Only heap and CPU stats are updated here. ECC / quarantine / relocation counters
+/// are updated exclusively at event time via `fetch_add` inside the SYS_READ handler,
+/// so that they are never silently overwritten by the scrubber-only `KernelCore` fields.
 fn thread_metrics_updater() {
     loop {
         let used = ALLOCATOR.lock().used() as u64;
         syscall::SHARED_INFO_PAGE.info.heap_used.store(used, Ordering::Relaxed);
         syscall::SHARED_INFO_PAGE.info.heap_free.store((256 * 1024 * 1024 - used as usize) as u64, Ordering::Relaxed);
-        
-        {
-            let mut core_lock = SYSTEM_CORE.lock();
-            if let Some(ref mut core) = *core_lock {
-                syscall::SHARED_INFO_PAGE.info.ecc_corrections.store(core.ecc_single_bit_corrections as u64, Ordering::Relaxed);
-                syscall::SHARED_INFO_PAGE.info.pages_quarantined.store(core.pages_quarantined as u64, Ordering::Relaxed);
-                syscall::SHARED_INFO_PAGE.info.pages_relocated.store(core.pages_relocated as u64, Ordering::Relaxed);
-            }
-        }
         
         scheduler::SCHEDULER.lock().thread_yield();
     }
