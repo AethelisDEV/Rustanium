@@ -49,24 +49,25 @@ pub fn draw_pixel_alpha(x: i32, y: i32, r: u8, g: u8, b: u8, alpha: u8) {
         
         let idx = ((y * sw + x) * 3) as usize;
         let is_format_0 = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
-        let (dest_r, dest_g, dest_b) = unsafe {
-            let buffer = &BACK_BUFFER.0;
-            if is_format_0 {
-                (buffer[idx + 2], buffer[idx + 1], buffer[idx])
-            } else {
-                (buffer[idx], buffer[idx + 1], buffer[idx + 2])
-            }
-        };
-        
         let alpha_u = alpha as u32;
         let inv_alpha = 255 - alpha_u;
         
-        let blended_r = (((r as u32 * alpha_u) + (dest_r as u32 * inv_alpha)) / 255) as u8;
-        let blended_g = (((g as u32 * alpha_u) + (dest_g as u32 * inv_alpha)) / 255) as u8;
-        let blended_b = (((b as u32 * alpha_u) + (dest_b as u32 * inv_alpha)) / 255) as u8;
-        
         unsafe {
             let buffer = &mut BACK_BUFFER.0;
+            let (dest_r, dest_g, dest_b) = if is_format_0 {
+                (buffer[idx + 2], buffer[idx + 1], buffer[idx])
+            } else {
+                (buffer[idx], buffer[idx + 1], buffer[idx + 2])
+            };
+            
+            let vr = r as u32 * alpha_u + dest_r as u32 * inv_alpha;
+            let vg = g as u32 * alpha_u + dest_g as u32 * inv_alpha;
+            let vb = b as u32 * alpha_u + dest_b as u32 * inv_alpha;
+            
+            let blended_r = ((vr + 1 + (vr >> 8)) >> 8) as u8;
+            let blended_g = ((vg + 1 + (vg >> 8)) >> 8) as u8;
+            let blended_b = ((vb + 1 + (vb >> 8)) >> 8) as u8;
+            
             if is_format_0 {
                 buffer[idx] = blended_b;
                 buffer[idx + 1] = blended_g;
@@ -894,6 +895,100 @@ pub fn copy_rect_back_to_fb(fb_ptr: *mut u8, rx: i32, ry: i32, rw: i32, rh: i32,
             let dst_row = fb_ptr.add((row_offset + start_x as usize) * 3);
             let byte_count = ((end_x - start_x) * 3) as usize;
             core::ptr::copy_nonoverlapping(src_row, dst_row, byte_count);
+        }
+    }
+}
+
+/// Copies a rectangular area from `BACK_BUFFER` and caches it in a `WindowBackingStore`.
+///
+/// Reads back buffer values, checks format layout dynamically, and stores pixels
+/// as 32-bit ARGB format inside the window's atomic pixel cache array.
+///
+/// # Parameters
+/// * `store` - Reference to the target `WindowBackingStore` cache structure.
+/// * `wx` - Screen-space starting X-coordinate of the snapshot area.
+/// * `wy` - Screen-space starting Y-coordinate of the snapshot area.
+/// * `ww` - Active width of the window to snapshot.
+/// * `wh` - Active height of the window to snapshot.
+pub fn snapshot_window_backing_store(store: &crate::state::WindowBackingStore, wx: i32, wy: i32, ww: usize, wh: usize) {
+    if ww == 0 || wh == 0 { return; }
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    let is_format_0 = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
+
+    store.width.store(ww as u32, Ordering::Relaxed);
+    store.height.store(wh as u32, Ordering::Relaxed);
+
+    unsafe {
+        let back_buf_ptr = core::ptr::addr_of!(BACK_BUFFER.0) as *const u8;
+        for cy in 0..wh {
+            let screen_y = wy + cy as i32;
+            if screen_y < 0 || screen_y >= sh { continue; }
+            let row_offset = (screen_y * sw) as usize;
+            for cx in 0..ww {
+                let screen_x = wx + cx as i32;
+                if screen_x < 0 || screen_x >= sw { continue; }
+                let idx = (row_offset + screen_x as usize) * 3;
+                let (r, g, b) = if is_format_0 {
+                    (*back_buf_ptr.add(idx + 2), *back_buf_ptr.add(idx + 1), *back_buf_ptr.add(idx))
+                } else {
+                    (*back_buf_ptr.add(idx), *back_buf_ptr.add(idx + 1), *back_buf_ptr.add(idx + 2))
+                };
+                let argb = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                let store_idx = cy * 580 + cx;
+                if store_idx < store.pixels.len() {
+                    store.pixels[store_idx].store(argb, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+}
+
+/// Blits cached window pixels from a `WindowBackingStore` onto `BACK_BUFFER`.
+///
+/// Reads cached 32-bit ARGB pixels from the backing store and writes them back
+/// to the linear software renderer back buffer, converting formats dynamically.
+///
+/// # Parameters
+/// * `store` - Reference to the source `WindowBackingStore` cache structure.
+/// * `wx` - Screen-space starting X-coordinate to restore the window.
+/// * `wy` - Screen-space starting Y-coordinate to restore the window.
+pub fn restore_window_backing_store(store: &crate::state::WindowBackingStore, wx: i32, wy: i32) {
+    let ww = store.width.load(Ordering::Relaxed) as usize;
+    let wh = store.height.load(Ordering::Relaxed) as usize;
+    if ww == 0 || wh == 0 { return; }
+    let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
+    let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+    let is_format_0 = SCREEN_FORMAT.load(Ordering::Relaxed) == 0;
+
+    unsafe {
+        let back_buf_ptr = core::ptr::addr_of_mut!(BACK_BUFFER.0) as *mut u8;
+        for cy in 0..wh {
+            let screen_y = wy + cy as i32;
+            if screen_y < 0 || screen_y >= sh { continue; }
+            let row_offset = (screen_y * sw) as usize;
+            for cx in 0..ww {
+                let screen_x = wx + cx as i32;
+                if screen_x < 0 || screen_x >= sw { continue; }
+                let store_idx = cy * 580 + cx;
+                if store_idx < store.pixels.len() {
+                    let argb = store.pixels[store_idx].load(Ordering::Relaxed);
+                    let r = ((argb >> 16) & 0xFF) as u8;
+                    let g = ((argb >> 8) & 0xFF) as u8;
+                    let b = (argb & 0xFF) as u8;
+
+                    let idx = (row_offset + screen_x as usize) * 3;
+                    if is_format_0 {
+                        *back_buf_ptr.add(idx) = b;
+                        *back_buf_ptr.add(idx + 1) = g;
+                        *back_buf_ptr.add(idx + 2) = r;
+                    } else {
+                        *back_buf_ptr.add(idx) = r;
+                        *back_buf_ptr.add(idx + 1) = g;
+                        *back_buf_ptr.add(idx + 2) = b;
+                    }
+                }
+            }
         }
     }
 }

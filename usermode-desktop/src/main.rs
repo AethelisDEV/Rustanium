@@ -25,6 +25,7 @@ pub mod monitor;
 pub mod taskbar;
 pub mod file_manager;
 pub mod settings;
+pub mod dirty;
 
 use syscalls::*;
 use graphics::*;
@@ -37,6 +38,7 @@ use monitor::*;
 use taskbar::*;
 use file_manager::*;
 use settings::*;
+use dirty::*;
 
 use core::sync::atomic::Ordering;
 
@@ -220,6 +222,8 @@ extern "C" fn main_rust() -> ! {
     };
 
     let mut needs_redraw = true;
+    let mut dirty_tracker = DirtyRectTracker::new();
+    dirty_tracker.mark_all_dirty();
     let mut last_tick_update = 0;
     let mut last_anim_tick = 0;
 
@@ -232,6 +236,7 @@ extern "C" fn main_rust() -> ! {
             loop {
                 if event.event_type == 1 {
                     needs_redraw = true;
+                    WINDOW_BACKING_STORES[1].is_dirty.store(true, Ordering::Relaxed);
                     let key = event.keyboard_key;
                     
                     let mut terminal_focused = false;
@@ -334,6 +339,9 @@ extern "C" fn main_rust() -> ! {
                                                 sys_write(2, "Shutting down system...\n".as_ptr(), 24);
                                                 syscall0(3);
                                             }
+                                            for k in 0..4 {
+                                                WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
+                                            }
                                             START_MENU_ANIMATING.store(true, Ordering::Relaxed);
                                             START_MENU_OPEN.store(false, Ordering::Relaxed);
                                             break;
@@ -401,6 +409,9 @@ extern "C" fn main_rust() -> ! {
                                                         unsafe { WINDOWS[idx] = Some(win_mut); }
                                                     } else {
                                                         focus_window_by_id(win_id);
+                                                    }
+                                                    for k in 0..4 {
+                                                        WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                                     }
                                                 }
                                             }
@@ -532,6 +543,9 @@ extern "C" fn main_rust() -> ! {
                                         }
                                         
                                         WINDOWS[count - 1] = Some(win);
+                                        for k in 0..4 {
+                                            WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
+                                        }
                                     } else {
                                         // Clicked background, unfocus all
                                         for j in 0..count {
@@ -539,6 +553,9 @@ extern "C" fn main_rust() -> ! {
                                                 w.is_focused = false;
                                                 w.is_dragging = false;
                                             }
+                                        }
+                                        for k in 0..4 {
+                                            WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                         }
                                     }
                                 }
@@ -549,8 +566,12 @@ extern "C" fn main_rust() -> ! {
                                 for i in 0..4 {
                                     if let Some(ref mut win) = WINDOWS[i] {
                                         if win.is_dragging {
+                                            let (old_ax, old_ay) = win.get_animated_pos();
+                                            dirty_tracker.add_rect(old_ax - 20, old_ay - 20, win.width as i32 + 40, win.height as i32 + 40);
                                             win.x += dx;
                                             win.y += dy;
+                                            let (new_ax, new_ay) = win.get_animated_pos();
+                                            dirty_tracker.add_rect(new_ax - 20, new_ay - 20, win.width as i32 + 40, win.height as i32 + 40);
                                         }
                                     }
                                 }
@@ -584,6 +605,7 @@ extern "C" fn main_rust() -> ! {
         if read_bytes > 0 && read_bytes != u64::MAX {
             event_processed = true;
             needs_redraw = true;
+            WINDOW_BACKING_STORES[1].is_dirty.store(true, Ordering::Relaxed);
             let mut terminal_focused = false;
             unsafe {
                 for i in 0..4 {
@@ -614,6 +636,7 @@ extern "C" fn main_rust() -> ! {
         if ticks - last_tick_update >= 10 { // Update metrics every 100ms
             last_tick_update = ticks;
             needs_redraw = true;
+            WINDOW_BACKING_STORES[0].is_dirty.store(true, Ordering::Relaxed);
             unsafe {
                 let cpu_load = ((*shared_info).cpu_usage.load(Ordering::Relaxed) / 100) as u8;
                 for i in 0..39 {
@@ -708,10 +731,47 @@ extern "C" fn main_rust() -> ! {
             // Blit the cached nebula wallpaper as the first layer
             draw_wallpaper();
 
-
-
             let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
             let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
+
+            // Populate dirty tracker dynamically
+            if dirty_tracker.is_all_dirty() {
+                // Whole screen is already dirty
+            } else {
+                // 1. Ticks CPU/RAM telemetry text area at top-right
+                dirty_tracker.add_rect(sw - 200, 0, 200, 30);
+                
+                // 2. Start menu Launchpad region if open or animating
+                if START_MENU_OPEN.load(Ordering::Relaxed) || START_MENU_ANIMATING.load(Ordering::Relaxed) {
+                    let (_dock_start_x, _dock_w, _sizes, xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
+                    let launchpad_cx = xs[0] + _sizes[0] / 2.0;
+                    let menu_w = 220;
+                    let menu_h = 220;
+                    let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
+                    let menu_y = (sh - 82) - menu_h - 12;
+                    dirty_tracker.add_rect(menu_x, menu_y, menu_w, menu_h);
+                }
+                
+                // 3. Dock region
+                let (dock_start_x, dock_w, _, _) = get_dock_layout(sw, sh, cursor_x, cursor_y);
+                dirty_tracker.add_rect(dock_start_x as i32 - 20, sh - 100, dock_w as i32 + 40, 100);
+                
+                // 4. Windows that are open/animating/dirty
+                unsafe {
+                    for i in 0..4 {
+                        if let Some(ref win) = WINDOWS[i] {
+                            if !win.is_open && !win.is_animating {
+                                continue;
+                            }
+                            let (ax, ay) = win.get_animated_pos();
+                            let store = &WINDOW_BACKING_STORES[win.id as usize];
+                            if store.is_dirty.load(Ordering::Relaxed) || win.is_animating {
+                                dirty_tracker.add_rect(ax - 20, ay - 20, win.width as i32 + 40, win.height as i32 + 40);
+                            }
+                        }
+                    }
+                }
+            }
 
             unsafe {
                 for i in 0..4 {
@@ -721,22 +781,29 @@ extern "C" fn main_rust() -> ! {
                         }
                         let (ax, ay) = win.get_animated_pos();
                         draw_window_shadow(ax, ay, win.width as i32, win.height as i32);
-                        draw_window(win);
                         
-                        if win.id == 0 {
-                            draw_monitor_window(ax, ay, shared_info);
-                        }
-
-                        if win.id == 1 {
-                            draw_console_window(ax, ay);
-                        }
-
-                        if win.id == 2 {
-                            draw_file_manager(ax, ay, win.width, win.height);
-                        }
-
-                        if win.id == 3 {
-                            draw_settings_window(ax, ay, win.width, win.height);
+                        let store = &WINDOW_BACKING_STORES[win.id as usize];
+                        let is_maximized = win.is_maximized;
+                        
+                        if store.is_dirty.load(Ordering::Relaxed) || win.is_animating || is_maximized {
+                            draw_window(win);
+                            
+                            if win.id == 0 {
+                                draw_monitor_window(ax, ay, shared_info);
+                            } else if win.id == 1 {
+                                draw_console_window(ax, ay);
+                            } else if win.id == 2 {
+                                draw_file_manager(ax, ay, win.width, win.height);
+                            } else if win.id == 3 {
+                                draw_settings_window(ax, ay, win.width, win.height);
+                            }
+                            
+                            if !win.is_animating && !is_maximized {
+                                snapshot_window_backing_store(store, ax, ay, win.width, win.height);
+                                store.is_dirty.store(false, Ordering::Relaxed);
+                            }
+                        } else {
+                            restore_window_backing_store(store, ax, ay);
                         }
                     }
                 }
@@ -747,12 +814,23 @@ extern "C" fn main_rust() -> ! {
 
             let fb_ptr = screen_info.framebuffer_addr as *mut u8;
             unsafe {
-                let back_buffer_ptr = core::ptr::addr_of!(BACK_BUFFER.0) as *const u8;
-                core::ptr::copy_nonoverlapping(
-                    back_buffer_ptr,
-                    fb_ptr,
-                    (sw * sh * 3) as usize,
-                );
+                if dirty_tracker.is_all_dirty() {
+                    let back_buffer_ptr = core::ptr::addr_of!(BACK_BUFFER.0) as *const u8;
+                    core::ptr::copy_nonoverlapping(
+                        back_buffer_ptr,
+                        fb_ptr,
+                        (sw * sh * 3) as usize,
+                    );
+                } else {
+                    // Restore background under old cursor from BACK_BUFFER
+                    copy_rect_back_to_fb(fb_ptr, prev_render_x, prev_render_y, 8, 12, sw, sh);
+                    
+                    for opt_rect in dirty_tracker.get_rects() {
+                        if let Some(rect) = opt_rect {
+                            copy_rect_back_to_fb(fb_ptr, rect.x, rect.y, rect.w, rect.h, sw, sh);
+                        }
+                    }
+                }
                 
                 // Draw cursor directly on framebuffer
                 draw_cursor_to_buf(fb_ptr, cursor_x, cursor_y, sw, sh);
@@ -761,18 +839,17 @@ extern "C" fn main_rust() -> ! {
             }
 
             needs_redraw = false;
+            dirty_tracker.clear();
         } else if cursor_x != prev_render_x || cursor_y != prev_render_y {
             let fb_ptr = screen_info.framebuffer_addr as *mut u8;
             let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
             let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
-            unsafe {
-                // Restore background under old cursor from BACK_BUFFER
-                copy_rect_back_to_fb(fb_ptr, prev_render_x, prev_render_y, 8, 12, sw, sh);
-                // Draw cursor at new position directly to framebuffer
-                draw_cursor_to_buf(fb_ptr, cursor_x, cursor_y, sw, sh);
-                prev_render_x = cursor_x;
-                prev_render_y = cursor_y;
-            }
+            // Restore background under old cursor from BACK_BUFFER
+            copy_rect_back_to_fb(fb_ptr, prev_render_x, prev_render_y, 8, 12, sw, sh);
+            // Draw cursor at new position directly to framebuffer
+            draw_cursor_to_buf(fb_ptr, cursor_x, cursor_y, sw, sh);
+            prev_render_x = cursor_x;
+            prev_render_y = cursor_y;
         }
     }
 }

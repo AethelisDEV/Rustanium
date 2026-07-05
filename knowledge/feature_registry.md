@@ -152,6 +152,30 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Rationale**: Cleans up the desktop interface to showcase the nebula wallpaper and relies exclusively on the modern Dock and Launchpad for window launching, matching contemporary visual paradigms.
 * **Location**: `usermode-desktop/src/main.rs`
 
+### 18. Dirty Rectangles Update Optimization (Zero Unsafe Compliance)
+* **Date**: July 05, 2026
+* **Description**: Implemented a Dirty Rectangles update system in the software renderer.
+  * **DirtyRectTracker (`dirty.rs`)**: Tracks modified screen regions (such as window dragging, Launchpad animations, Dock magnification, and telemetry text updates) using a safe, fixed-size tracker.
+  * **Selective blitting**: Instead of copying the entire 24.88 MB frame buffer from `BACK_BUFFER` to the GOP framebuffer, it loops through the dirty rectangles and selectively copies only the modified regions.
+* **Rationale**: Drastically cuts down memory copy overhead during window movement and state updates.
+* **Location**: `usermode-desktop/src/dirty.rs` & `usermode-desktop/src/main.rs`
+
+### 19. Fast Division-Free Alpha Blending Optimization
+* **Date**: July 05, 2026
+* **Description**: Refactored alpha blending arithmetic to completely eliminate expensive integer divisions.
+  * **Fast bitwise blending**: Replaced the `/ 255` division in `draw_pixel_alpha` with a fast bitwise approximation `((val + 1 + (val >> 8)) >> 8)`, which compiles directly into registers.
+  * **Unsafe block reduction**: Combined two independent `unsafe` blocks in `draw_pixel_alpha` into a single unified block, enhancing borrow-checker visibility.
+* **Rationale**: Replaces division instructions with fast shift and add instructions inside inner loops, accelerating blend rates.
+* **Location**: `usermode-desktop/src/graphics.rs`
+
+### 20. Window Backing Store and Compositor Caching
+* **Date**: July 05, 2026
+* **Description**: Implemented a window backing store cache in the desktop compositor to prevent procedural redrawing.
+  * **Static cache memory (`state.rs`)**: Allocated static `[AtomicU32; 580 * 380]` BSS segments for window caching to conform to the Zero Unsafe Policy.
+  * **Compositor snapshot & restore**: Snapshots windows onto the backing store when they are redrawn (dirty) and restores them directly using fast copy operations during idle/drag states, bypassing procedural font rendering and layout loops.
+* **Rationale**: Eliminates window redraw cost when dragging other windows or moving the mouse, resulting in a lag-free visual interface.
+* **Location**: `usermode-desktop/src/state.rs`, `usermode-desktop/src/graphics.rs`, & `usermode-desktop/src/main.rs`
+
 ---
 
 ## 📊 Visual Telemetry & Interface Enhancements
