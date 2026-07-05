@@ -409,7 +409,27 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                     }
 
                     match core.vfs.read_file(&path, &mut core.allocator) {
-                        Ok(data) => {
+                        Ok((data, report)) => {
+                            // ── Propagate read-time ECC telemetry into the shared info page ──
+                            if report.ecc_corrections > 0 {
+                                SHARED_INFO_PAGE.info.ecc_corrections.fetch_add(
+                                    report.ecc_corrections as u64,
+                                    Ordering::Relaxed,
+                                );
+                            }
+                            if report.pages_quarantined > 0 {
+                                SHARED_INFO_PAGE.info.pages_quarantined.fetch_add(
+                                    report.pages_quarantined as u64,
+                                    Ordering::Relaxed,
+                                );
+                            }
+                            if report.pages_relocated > 0 {
+                                SHARED_INFO_PAGE.info.pages_relocated.fetch_add(
+                                    report.pages_relocated as u64,
+                                    Ordering::Relaxed,
+                                );
+                            }
+
                             if offset >= data.len() {
                                 return 0;
                             }
@@ -492,7 +512,7 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 let mut core_lock = SYSTEM_CORE.lock();
                 if let Some(ref mut core) = *core_lock {
                     let mut data = match core.vfs.read_file(&path, &mut core.allocator) {
-                        Ok(d) => d,
+                        Ok((d, _)) => d,
                         Err(_) => Vec::new(),
                     };
                     let new_offset = offset + len;

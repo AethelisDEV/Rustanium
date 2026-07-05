@@ -17,4 +17,4 @@ pub mod vfs;
 
 // Re-export core types for simplified external usage
 pub use inode::{Inode, InodeType};
-pub use vfs::VirtualFileSystem;
+pub use vfs::{VirtualFileSystem, ReadReport};

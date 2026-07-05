@@ -138,7 +138,7 @@ pub fn handle_command(
             }
             let file_path = resolve_relative_path(cwd, args[0]);
             match core.vfs.read_file(&file_path, &mut core.allocator) {
-                Ok(data) => {
+                Ok((data, _)) => {
                     println!("------------------------------------------------------------");
                     println!("LAUNCHING RING 3 PROCESS FROM VFS: {}", file_path);
                     println!("------------------------------------------------------------");
@@ -300,7 +300,7 @@ pub fn handle_command(
             }
             let file_path = resolve_relative_path(cwd, args[0]);
             match core.vfs.read_file(&file_path, &mut core.allocator) {
-                Ok(data) => {
+                Ok((data, _)) => {
                     println!("--- {} ---", file_path);
                     if let Ok(text) = core::str::from_utf8(&data) {
                         print!("{}", text);
@@ -416,7 +416,7 @@ pub fn handle_command(
                 None => { println!("\x1B[38;5;196mUsage: head [-n <count>] <path>\x1B[0m"); return; }
             };
             match core.vfs.read_file(&path, &mut core.allocator) {
-                Ok(data) => {
+                Ok((data, _)) => {
                     if let Ok(text) = core::str::from_utf8(&data) {
                         for (i, line) in text.lines().enumerate() {
                             if i >= n { break; }
@@ -436,7 +436,7 @@ pub fn handle_command(
                 None => { println!("\x1B[38;5;196mUsage: tail [-n <count>] <path>\x1B[0m"); return; }
             };
             match core.vfs.read_file(&path, &mut core.allocator) {
-                Ok(data) => {
+                Ok((data, _)) => {
                     if let Ok(text) = core::str::from_utf8(&data) {
                         let all_lines: Vec<&str> = text.lines().collect();
                         let start = if all_lines.len() > n { all_lines.len() - n } else { 0 };
@@ -457,7 +457,7 @@ pub fn handle_command(
             }
             let path = resolve_relative_path(cwd, args[0]);
             match core.vfs.read_file(&path, &mut core.allocator) {
-                Ok(data) => {
+                Ok((data, _)) => {
                     let bytes = data.len();
                     if let Ok(text) = core::str::from_utf8(&data) {
                         let lines = text.lines().count();

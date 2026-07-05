@@ -400,7 +400,7 @@ fn enter_shell_mode(core: &mut SystemCore) {
                     let resolved_path = resolve_absolute_path(&cwd, arg);
                     println!();
                     match core.vfs.read_file(&resolved_path, &mut core.allocator) {
-                        Ok(data) => {
+                        Ok((data, _)) => {
                             if let Ok(text) = String::from_utf8(data) {
                                 for line in text.lines() {
                                     println!("    {}", line);
@@ -565,7 +565,7 @@ fn enter_shell_mode(core: &mut SystemCore) {
                         let resolved_path = resolve_absolute_path(&cwd, arg);
                         println!();
                         match core.vfs.read_file(&resolved_path, &mut core.allocator) {
-                            Ok(data) => {
+                            Ok((data, _)) => {
                                 if data.is_empty() {
                                     println!("    (File '{}' is empty)", resolved_path);
                                 } else {

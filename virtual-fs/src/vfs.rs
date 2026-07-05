@@ -18,6 +18,20 @@ use alloc::vec;
 use memory_subsystem::{MemoryAllocator, PAGE_SIZE};
 use crate::inode::{Inode, InodeType};
 
+/// Diagnostic summary emitted by [`VirtualFileSystem::read_file`].
+///
+/// Callers can inspect this to update telemetry counters, log events, or
+/// take corrective action after a file read.
+#[derive(Debug, Default, Clone)]
+pub struct ReadReport {
+    /// Number of single-bit ECC corrections performed during the read.
+    pub ecc_corrections: usize,
+    /// Number of page frames that were quarantined due to uncorrectable double-bit flips.
+    pub pages_quarantined: usize,
+    /// Number of page frames that were successfully relocated and hot-swapped.
+    pub pages_relocated: usize,
+}
+
 /// A Virtual File System manager.
 #[derive(Debug, Clone)]
 pub struct VirtualFileSystem {
@@ -218,13 +232,19 @@ impl VirtualFileSystem {
     /// 3. Relocates the surviving data.
     /// 4. Hot-swaps the block index inside this file's Inode dynamically.
     /// 5. Retries the read on the fly, returning the file data seamlessly.
+    /// Reads the full contents of the file at `path` from physical memory, applying ECC
+    /// self-healing and transparent page relocation for any corrupted frames encountered.
+    ///
+    /// Returns `(file_data, report)` where `report` contains telemetry about corrections
+    /// and quarantines that occurred during the read.
     pub fn read_file(
         &mut self,
         path: &str,
         allocator: &mut MemoryAllocator,
-    ) -> Result<Vec<u8>, &'static str> {
+    ) -> Result<(Vec<u8>, ReadReport), &'static str> {
         let inode_idx = self.resolve_path(path)?;
         let mut inode = self.inodes[inode_idx].clone();
+        let mut report = ReadReport::default();
 
         let mut file_data = Vec::new();
 
@@ -240,14 +260,20 @@ impl VirtualFileSystem {
                     while offset < PAGE_SIZE && bytes_read < *size {
                         // Read byte with active fault trap
                         match allocator.frames[frame_idx].read_byte(offset) {
-                            Ok((byte_val, _)) => {
+                            Ok((byte_val, correction_event)) => {
                                 file_data.push(byte_val);
                                 bytes_read += 1;
                                 offset += 1;
+                                // Track single-bit ECC corrections
+                                if correction_event.is_some() {
+                                    report.ecc_corrections += 1;
+                                }
                             }
                             Err(damaged_idx) => {
                                 // Severe double-bit corruption detected! Relocate and quarantine page frame.
+                                report.pages_quarantined += 1;
                                 let new_frame_idx = allocator.relocate_and_quarantine(damaged_idx)?;
+                                report.pages_relocated += 1;
 
                                 // Hot-swap the block index dynamically in this inode
                                 *frame_ref = new_frame_idx;
@@ -265,7 +291,7 @@ impl VirtualFileSystem {
 
         // Commit any updated block indices (if dynamic hot-swaps occurred during reading)
         self.inodes[inode_idx] = inode;
-        Ok(file_data)
+        Ok((file_data, report))
     }
 
     /// Removes a file or directory node from the VFS.
@@ -352,7 +378,7 @@ impl VirtualFileSystem {
         pid: u32,
     ) -> Result<(), &'static str> {
         // Read source bytes first (may trigger hot-swap self-healing)
-        let data = self.read_file(src_path, allocator)?;
+        let (data, _report) = self.read_file(src_path, allocator)?;
 
         // Create the destination file node
         self.create_file(dst_parent_path, dst_name)?;
@@ -470,7 +496,7 @@ mod tests {
         vfs.write_file("/data/telemetry.log", content, &mut allocator, pid).unwrap();
 
         // Read and verify
-        let read_back = vfs.read_file("/data/telemetry.log", &mut allocator).unwrap();
+        let (read_back, _) = vfs.read_file("/data/telemetry.log", &mut allocator).unwrap();
         assert_eq!(read_back, content);
     }
 
@@ -499,7 +525,7 @@ mod tests {
         }
 
         // Read back and verify bytes
-        let read_back = vfs.read_file("/large.txt", &mut allocator).unwrap();
+        let (read_back, _) = vfs.read_file("/large.txt", &mut allocator).unwrap();
         assert_eq!(read_back, content);
     }
 
@@ -526,12 +552,15 @@ mod tests {
         allocator.inject_bit_flip(initial_frame, 0, 4).unwrap();
 
         // Reading file should intercept double-bit flip, isolate initial_frame, relocate, and successfully read!
-        let read_back = vfs.read_file("/fault_test.txt", &mut allocator).unwrap();
+        let (read_back, report) = vfs.read_file("/fault_test.txt", &mut allocator).unwrap();
 
         // Check if data is returned successfully (the corrupted byte falls back to zero safely)
         assert_eq!(read_back.len(), content.len());
         assert_eq!(read_back[0], 0); // Flipped byte gets zeroed safely
         assert_eq!(&read_back[1..], &content[1..]); // Rest of file content remains perfectly intact!
+        // Verify the report captured the quarantine/relocation events
+        assert_eq!(report.pages_quarantined, 1);
+        assert_eq!(report.pages_relocated, 1);
 
         // Verify the file's Inode blocks list was hot-swapped to a new frame
         let final_frame = if let InodeType::File { blocks, .. } = &vfs.inodes[idx].inode_type {
