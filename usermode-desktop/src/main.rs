@@ -25,6 +25,7 @@ pub mod settings;
 pub mod dirty;
 pub mod render;
 pub mod input;
+pub mod radiation;
 
 use syscalls::*;
 use graphics::init_nebula_wallpaper;
@@ -196,6 +197,26 @@ extern "C" fn main_rust() -> ! {
             anim_progress: 100,
             anim_direction: true,
         });
+
+        WINDOWS[4] = Some(Window {
+            id: 4,
+            title: "Radiation Simulator",
+            x: 240,
+            y: 120,
+            width: 460,
+            height: 320,
+            is_dragging: false,
+            is_focused: false,
+            is_open: false,
+            is_maximized: false,
+            prev_x: 240,
+            prev_y: 120,
+            prev_w: 460,
+            prev_h: 320,
+            is_animating: false,
+            anim_progress: 100,
+            anim_direction: true,
+        });
     }
 
     let mut input_state = input::InputState::new();
@@ -263,7 +284,7 @@ extern "C" fn main_rust() -> ! {
         // Handle animation step
         let mut anim_running = false;
         unsafe {
-            for i in 0..4 {
+            for i in 0..5 {
                 if let Some(ref mut win) = WINDOWS[i] {
                     if win.is_animating {
                         anim_running = true;
@@ -280,7 +301,7 @@ extern "C" fn main_rust() -> ! {
             
             // 1. Windows animation steps
             unsafe {
-                for i in 0..4 {
+                for i in 0..5 {
                     if let Some(ref mut win) = WINDOWS[i] {
                         if win.is_animating {
                             if win.anim_direction {

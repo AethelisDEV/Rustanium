@@ -3,7 +3,6 @@
 
 use crate::atlas_font::{draw_text_atlas, AtlasSize, AtlasWeight};
 use crate::graphics::{draw_rounded_rect_alpha, draw_rounded_rect_outline_alpha};
-use crate::utils::StrbufWriter;
 
 /// Renders the visual content of the System Settings window.
 ///
@@ -51,42 +50,4 @@ pub fn draw_settings_window(ax: i32, ay: i32, w: usize, _h: usize) {
         // Switch Knob (Left-aligned white dot)
         draw_rounded_rect_alpha(switch_x + 2, switch_y + 2, 20, 20, 10, 255, 255, 255, 255);
     }
-
-    // Option Card for Radiation Simulation
-    let inject_y = ay + 180;
-    draw_rounded_rect_alpha(ax + 24, inject_y, w as i32 - 48, 56, 8, 32, 34, 42, 235);
-    draw_rounded_rect_outline_alpha(ax + 24, inject_y, w as i32 - 48, 56, 8, 60, 64, 80, 1, 100);
-
-    draw_text_atlas(ax + 40, inject_y + 18, "Simulate Radiation Bit Flip", 220, 225, 235, AtlasSize::Small, AtlasWeight::Regular);
-
-    // FLIP 1 Button
-    let btn1_x = ax + w as i32 - 160;
-    let btn1_y = inject_y + 14;
-    let btn1_w = 56;
-    let btn1_h = 28;
-    draw_rounded_rect_alpha(btn1_x, btn1_y, btn1_w, btn1_h, 6, 230, 140, 40, 255); // Orange
-    draw_text_atlas(btn1_x + 8, btn1_y + 6, "FLIP 1", 255, 255, 255, AtlasSize::Small, AtlasWeight::SemiBold);
-
-    // FLIP 2 Button
-    let btn2_x = ax + w as i32 - 96;
-    let btn2_y = inject_y + 14;
-    let btn2_w = 56;
-    let btn2_h = 28;
-    draw_rounded_rect_alpha(btn2_x, btn2_y, btn2_w, btn2_h, 6, 235, 70, 70, 255); // Red
-    draw_text_atlas(btn2_x + 8, btn2_y + 6, "FLIP 2", 255, 255, 255, AtlasSize::Small, AtlasWeight::SemiBold);
-
-    // Live Metrics
-    let info = crate::syscalls::sys_get_shared_info();
-    let (ecc, quarantine, relocated) = unsafe {
-        (
-            (*info).ecc_corrections.load(core::sync::atomic::Ordering::Relaxed),
-            (*info).pages_quarantined.load(core::sync::atomic::Ordering::Relaxed),
-            (*info).pages_relocated.load(core::sync::atomic::Ordering::Relaxed),
-        )
-    };
-
-    let mut buf = [0u8; 96];
-    let mut w_writer = StrbufWriter::new(&mut buf);
-    let _ = core::fmt::write(&mut w_writer, format_args!("ECC Repairs: {}  |  Quarantine: {}  |  Relocated: {}", ecc, quarantine, relocated));
-    draw_text_atlas(ax + 28, inject_y + 68, w_writer.as_str(), 140, 150, 165, AtlasSize::Small, AtlasWeight::Regular);
 }

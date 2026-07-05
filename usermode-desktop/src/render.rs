@@ -16,6 +16,7 @@ use crate::monitor::draw_monitor_window;
 use crate::console::draw_console_window;
 use crate::file_manager::draw_file_manager;
 use crate::settings::draw_settings_window;
+use crate::radiation::draw_radiation_window;
 use crate::taskbar::{draw_taskbar, get_dock_layout};
 use crate::dirty::DirtyRectTracker;
 use crate::syscalls::{ScreenInfo, SharedSystemInfo};
@@ -64,9 +65,9 @@ pub fn draw_compositor_frame(
             let (dock_start_x, dock_w, _, _) = get_dock_layout(sw, sh, cursor_x, cursor_y);
             dirty_tracker.add_rect(dock_start_x as i32 - 20, sh - 100, dock_w as i32 + 40, 100);
             
-            // 4. Windows that are open/animating/dirty
+            // 5. Windows that are open/animating/dirty
             unsafe {
-                for i in 0..4 {
+                for i in 0..5 {
                     if let Some(ref win) = WINDOWS[i] {
                         if !win.is_open && !win.is_animating {
                             continue;
@@ -82,7 +83,7 @@ pub fn draw_compositor_frame(
         }
 
         unsafe {
-            for i in 0..4 {
+            for i in 0..5 {
                 if let Some(ref win) = WINDOWS[i] {
                     if !win.is_open && !win.is_animating {
                         continue;
@@ -104,6 +105,8 @@ pub fn draw_compositor_frame(
                             draw_file_manager(ax, ay, win.width, win.height);
                         } else if win.id == 3 {
                             draw_settings_window(ax, ay, win.width, win.height);
+                        } else if win.id == 4 {
+                            draw_radiation_window(ax, ay, win.width, win.height);
                         }
                         
                         if !win.is_animating && !is_maximized {

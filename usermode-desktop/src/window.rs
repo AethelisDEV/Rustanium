@@ -41,7 +41,7 @@ impl Window {
     }
 }
 
-pub static mut WINDOWS: [Option<Window>; 4] = [None, None, None, None];
+pub static mut WINDOWS: [Option<Window>; 5] = [None, None, None, None, None];
 pub static mut IO_BUFFER: [u8; 4096] = [0; 4096];
 
 pub fn hit_test_title(win: &Window, mx: i32, my: i32) -> bool {
@@ -59,7 +59,7 @@ pub fn hit_test_body(win: &Window, mx: i32, my: i32) -> bool {
 pub fn focus_window_by_id(id: u8) {
     unsafe {
         let mut count = 0;
-        for i in 0..4 {
+        for i in 0..5 {
             if WINDOWS[i].is_some() {
                 count += 1;
             }

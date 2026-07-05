@@ -9,7 +9,7 @@ use crate::graphics::{
 };
 use crate::graphics::{
     draw_vector_launchpad_icon, draw_vector_metrics_icon, draw_vector_folder_icon,
-    draw_vector_terminal_icon, draw_vector_settings_icon
+    draw_vector_terminal_icon, draw_vector_radiation_icon
 };
 use crate::state::{START_MENU_OPEN, START_MENU_ANIMATING, START_MENU_ANIM_PROGRESS};
 use crate::window::WINDOWS;
@@ -113,7 +113,7 @@ pub fn draw_taskbar(
             1 => draw_vector_metrics_icon(ix, iy, size as i32),
             2 => draw_vector_folder_icon(ix, iy, size as i32),
             3 => draw_vector_terminal_icon(ix, iy, size as i32),
-            4 => draw_vector_settings_icon(ix, iy, size as i32),
+            4 => draw_vector_radiation_icon(ix, iy, size as i32),
             _ => {}
         }
         
@@ -124,7 +124,7 @@ pub fn draw_taskbar(
             1 => Some(0), // Metrics
             2 => Some(2), // Files
             3 => Some(1), // Console
-            4 => Some(3), // Settings
+            4 => Some(4), // Radiation Simulator
             _ => None,
         };
         
@@ -132,7 +132,7 @@ pub fn draw_taskbar(
             let mut is_open = false;
             let mut is_focused = false;
             unsafe {
-                for idx in 0..4 {
+                for idx in 0..5 {
                     if let Some(ref win) = WINDOWS[idx] {
                         if win.id == wid {
                             is_open = win.is_open;

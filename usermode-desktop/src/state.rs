@@ -37,8 +37,14 @@ pub struct WindowBackingStore {
     pub is_dirty: AtomicBool,
 }
 
-/// Global cache array storing the backing frames for the 4 windows.
-pub static WINDOW_BACKING_STORES: [WindowBackingStore; 4] = [
+/// Global cache array storing the backing frames for the 5 windows.
+pub static WINDOW_BACKING_STORES: [WindowBackingStore; 5] = [
+    WindowBackingStore {
+        pixels: [const { AtomicU32::new(0) }; 580 * 380],
+        width: AtomicU32::new(0),
+        height: AtomicU32::new(0),
+        is_dirty: AtomicBool::new(true),
+    },
     WindowBackingStore {
         pixels: [const { AtomicU32::new(0) }; 580 * 380],
         width: AtomicU32::new(0),

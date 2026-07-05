@@ -64,7 +64,7 @@ pub fn handle_input_event(
         let key = event.keyboard_key;
         let mut terminal_focused = false;
         unsafe {
-            for i in 0..4 {
+            for i in 0..5 {
                 if let Some(ref win) = WINDOWS[i] {
                     if win.id == 1 && win.is_focused {
                         terminal_focused = true;
@@ -205,13 +205,13 @@ pub fn handle_input_event(
                                         1 => 0, // Metrics
                                         2 => 2, // Files
                                         3 => 1, // Console
-                                        4 => 3, // Settings
+                                        4 => 4, // Radiation Simulator
                                         _ => 0,
                                     };
                                     
                                     let mut found_win_idx = None;
                                     unsafe {
-                                        for idx in 0..4 {
+                                        for idx in 0..5 {
                                             if let Some(ref win) = WINDOWS[idx] {
                                                 if win.id == win_id {
                                                     found_win_idx = Some(idx);
@@ -234,7 +234,7 @@ pub fn handle_input_event(
                                         } else {
                                             focus_window_by_id(win_id);
                                         }
-                                        for k in 0..4 {
+                                        for k in 0..5 {
                                             WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                         }
                                         dirty_tracker.mark_all_dirty();
@@ -252,7 +252,7 @@ pub fn handle_input_event(
                     let mut drag_started = false;
                     unsafe {
                         let mut count = 0;
-                        for i in 0..4 {
+                        for i in 0..5 {
                             if WINDOWS[i].is_some() {
                                 count += 1;
                             }
@@ -338,36 +338,43 @@ pub fn handle_input_event(
                                                 *needs_redraw = true;
                                                 dirty_tracker.mark_all_dirty();
                                             }
+                                        }
+                                        
+                                        // Radiation Simulator interactivity
+                                        if win.id == 4 {
+                                            let (ax, ay) = win.get_animated_pos();
+                                            let rx = state.cursor_x - ax;
+                                            let ry = state.cursor_y - ay;
                                             
-                                            // Inject Single-Bit Flip (FLIP 1)
-                                            if ry >= 180 && ry <= 236 &&
-                                               rx >= win.width as i32 - 160 && rx <= win.width as i32 - 104 {
+                                            // FLIP 1 — Single-bit flip (ECC auto-corrects)
+                                            if ry >= 118 && ry <= 146 &&
+                                               rx >= win.width as i32 - 160 && rx < win.width as i32 - 104 {
+                                                crate::radiation::add_radiation_log("[FLIP1] Injecting single-bit flip into frame...");
                                                 let _ = crate::syscalls::sys_inject_bit_flip(999, 10, 2);
-                                                
-                                                // Trigger file read to activate VFS self-healing
                                                 let fd = crate::syscalls::sys_open("/data/system_info.log".as_ptr(), 21, 0);
                                                 if fd != u64::MAX {
-                                                    let mut temp_buf = [0u8; 128];
-                                                    let _ = crate::syscalls::sys_read(fd, temp_buf.as_mut_ptr(), 128);
+                                                    let mut tmp = [0u8; 128];
+                                                    let _ = crate::syscalls::sys_read(fd, tmp.as_mut_ptr(), 128);
                                                     let _ = crate::syscalls::sys_close(fd);
                                                 }
+                                                crate::radiation::add_radiation_log("[FLIP1] ECC corrected — page recovered OK.");
                                                 *needs_redraw = true;
                                                 dirty_tracker.mark_all_dirty();
                                             }
-
-                                            // Inject Double-Bit Flip (FLIP 2)
-                                            if ry >= 180 && ry <= 236 &&
-                                               rx >= win.width as i32 - 96 && rx <= win.width as i32 - 40 {
+                                            
+                                            // FLIP 2 — Double-bit flip (VFS quarantines + relocates)
+                                            if ry >= 118 && ry <= 146 &&
+                                               rx >= win.width as i32 - 96 && rx < win.width as i32 - 40 {
+                                                crate::radiation::add_radiation_log("[FLIP2] Injecting double-bit flip into frame...");
                                                 let _ = crate::syscalls::sys_inject_bit_flip(999, 10, 1);
                                                 let _ = crate::syscalls::sys_inject_bit_flip(999, 10, 5);
-                                                
-                                                // Trigger file read to activate VFS quarantine and relocation
                                                 let fd = crate::syscalls::sys_open("/data/system_info.log".as_ptr(), 21, 0);
                                                 if fd != u64::MAX {
-                                                    let mut temp_buf = [0u8; 128];
-                                                    let _ = crate::syscalls::sys_read(fd, temp_buf.as_mut_ptr(), 128);
+                                                    let mut tmp = [0u8; 128];
+                                                    let _ = crate::syscalls::sys_read(fd, tmp.as_mut_ptr(), 128);
                                                     let _ = crate::syscalls::sys_close(fd);
                                                 }
+                                                crate::radiation::add_radiation_log("[FLIP2] Uncorrectable! VFS quarantine + relocation done.");
                                                 *needs_redraw = true;
                                                 dirty_tracker.mark_all_dirty();
                                             }
@@ -397,7 +404,7 @@ pub fn handle_input_event(
                             }
                             
                             WINDOWS[count - 1] = Some(win);
-                            for k in 0..4 {
+                            for k in 0..5 {
                                 WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                             }
                             dirty_tracker.mark_all_dirty();
@@ -408,7 +415,7 @@ pub fn handle_input_event(
                                     w.is_dragging = false;
                                 }
                             }
-                            for k in 0..4 {
+                            for k in 0..5 {
                                 WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                             }
                             dirty_tracker.mark_all_dirty();
@@ -419,7 +426,7 @@ pub fn handle_input_event(
             else {
                 // Dragging (prev_left_clicked == 1)
                 unsafe {
-                    for i in 0..4 {
+                    for i in 0..5 {
                         if let Some(ref mut win) = WINDOWS[i] {
                             if win.is_dragging {
                                 let (old_ax, old_ay) = win.get_animated_pos();
@@ -436,7 +443,7 @@ pub fn handle_input_event(
         } else {
             // Mouse Up (left_clicked == 0)
             unsafe {
-                for i in 0..4 {
+                for i in 0..5 {
                     if let Some(ref mut win) = WINDOWS[i] {
                         win.is_dragging = false;
                     }
@@ -462,7 +469,7 @@ pub fn handle_serial_input(
         WINDOW_BACKING_STORES[1].is_dirty.store(true, Ordering::Relaxed);
         let mut terminal_focused = false;
         unsafe {
-            for i in 0..4 {
+            for i in 0..5 {
                 if let Some(ref win) = WINDOWS[i] {
                     if win.id == 1 && win.is_focused {
                         terminal_focused = true;

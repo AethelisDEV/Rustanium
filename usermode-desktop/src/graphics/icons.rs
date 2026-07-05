@@ -172,3 +172,26 @@ pub fn draw_vector_settings_icon(x: i32, y: i32, size: i32) {
         draw_rounded_rect_alpha(knob_x - 4, ty - 3, 8, 8, 4, 61, 174, 233, 255);
     }
 }
+
+/// Renders a modern radioactive hazard symbol vector icon for the Radiation Simulator.
+pub fn draw_vector_radiation_icon(x: i32, y: i32, size: i32) {
+    let r = (size as f32 * 0.15) as i32;
+    // Dark violet-gray container
+    draw_rounded_rect_alpha(x, y, size, size, r.max(3), 32, 28, 44, 255);
+    // Orange glowing border
+    draw_rounded_rect_outline_alpha(x, y, size, size, r.max(3), 235, 140, 40, 1, 100);
+    
+    let cx = x + size / 2;
+    let cy = y + size / 2;
+    
+    // Central core dot
+    draw_rounded_rect_alpha(cx - 3, cy - 3, 6, 6, 3, 235, 140, 40, 255);
+    
+    // Trefoil blades
+    // Top blade
+    draw_rect_alpha(cx - 2, cy - 13, 4, 7, 235, 140, 40, 255);
+    // Bottom-left blade
+    draw_rect_alpha(cx - 10, cy + 5, 7, 4, 235, 140, 40, 255);
+    // Bottom-right blade
+    draw_rect_alpha(cx + 3, cy + 5, 7, 4, 235, 140, 40, 255);
+}
