@@ -342,6 +342,7 @@ extern "C" fn main_rust() -> ! {
                                             for k in 0..4 {
                                                 WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                             }
+                                            dirty_tracker.mark_all_dirty();
                                             START_MENU_ANIMATING.store(true, Ordering::Relaxed);
                                             START_MENU_OPEN.store(false, Ordering::Relaxed);
                                             break;
@@ -413,6 +414,7 @@ extern "C" fn main_rust() -> ! {
                                                     for k in 0..4 {
                                                         WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                                     }
+                                                    dirty_tracker.mark_all_dirty();
                                                 }
                                             }
                                             break;
@@ -513,6 +515,7 @@ extern "C" fn main_rust() -> ! {
                                                             let shadows_on = SHADOWS_ENABLED.load(Ordering::Relaxed);
                                                             SHADOWS_ENABLED.store(!shadows_on, Ordering::Relaxed);
                                                             needs_redraw = true;
+                                                            dirty_tracker.mark_all_dirty();
                                                         }
                                                     }
                                                     
@@ -546,6 +549,7 @@ extern "C" fn main_rust() -> ! {
                                         for k in 0..4 {
                                             WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                         }
+                                        dirty_tracker.mark_all_dirty();
                                     } else {
                                         // Clicked background, unfocus all
                                         for j in 0..count {
@@ -557,6 +561,7 @@ extern "C" fn main_rust() -> ! {
                                         for k in 0..4 {
                                             WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
                                         }
+                                        dirty_tracker.mark_all_dirty();
                                     }
                                 }
                             }
@@ -671,12 +676,14 @@ extern "C" fn main_rust() -> ! {
                     if progress >= 1.0 {
                         progress = 1.0;
                         START_MENU_ANIMATING.store(false, Ordering::Relaxed);
+                        dirty_tracker.mark_all_dirty();
                     }
                 } else {
                     progress -= 0.08 * tick_diff as f32;
                     if progress <= 0.0 {
                         progress = 0.0;
                         START_MENU_ANIMATING.store(false, Ordering::Relaxed);
+                        dirty_tracker.mark_all_dirty();
                     }
                 }
                 START_MENU_ANIM_PROGRESS.store(progress.to_bits(), Ordering::Relaxed);
@@ -691,6 +698,7 @@ extern "C" fn main_rust() -> ! {
                                 if win.anim_progress >= 100 {
                                     win.anim_progress = 100;
                                     win.is_animating = false;
+                                    dirty_tracker.mark_all_dirty();
                                 }
                             } else {
                                 win.anim_progress -= step;
@@ -699,6 +707,7 @@ extern "C" fn main_rust() -> ! {
                                     win.is_animating = false;
                                     win.is_open = false;
                                     win.is_focused = false;
+                                    dirty_tracker.mark_all_dirty();
                                     
                                     // Focus next window
                                     let mut next_to_focus = None;
@@ -735,8 +744,9 @@ extern "C" fn main_rust() -> ! {
             let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
 
             // Populate dirty tracker dynamically
-            if dirty_tracker.is_all_dirty() {
-                // Whole screen is already dirty
+            let is_anim = anim_running || START_MENU_ANIMATING.load(Ordering::Relaxed);
+            if dirty_tracker.is_all_dirty() || is_anim {
+                dirty_tracker.mark_all_dirty();
             } else {
                 // 1. Ticks CPU/RAM telemetry text area at top-right
                 dirty_tracker.add_rect(sw - 200, 0, 200, 30);
