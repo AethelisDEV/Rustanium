@@ -202,12 +202,14 @@ fn main() -> Result<()> {
     qemu.args([
         "-drive", &format!("format=raw,file={}", bios_image_path.display()),
         "-serial", "stdio", // Direct COM1 print to console!
+        "-display", "sdl",
         "-m", "1G",
+        "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", // Clean QEMU shutdown via port 0xF4
     ]);
 
     let mut qemu_child = qemu.spawn()
         .context("Failed to execute QEMU. Ensure QEMU is installed at 'C:\\Program Files\\qemu\\qemu-system-x86_64.exe'")?;
-    
+
     println!("🖥️ QEMU Window active. Logs are running on this console below.");
     println!("------------------------------------------------------------\n");
 
