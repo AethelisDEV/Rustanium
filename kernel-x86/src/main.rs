@@ -273,6 +273,114 @@ fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
         let _ = sched.spawn(thread_metrics_updater);
     }
 
+    // ────────────────────────────────────────────────────────
+    // 4. Boot Runlevel Selection (Dual-Boot Target States)
+    // ────────────────────────────────────────────────────────
+    println!("============================================================");
+    println!("        SELECT BOOT MODE (RUSTIX OS / AE RUSTANIUM)");
+    println!("============================================================");
+    println!("  [1] Graphical Desktop Environment (Default)");
+    println!("  [2] Safe Mode (Interactive Command-Line Shell)");
+    println!("============================================================");
+    print!("Press 1 or 2 to boot (timeout 3 seconds)... ");
+
+    let start_ticks = SYSTEM_TICKS.load(Ordering::Relaxed);
+    let mut choice = 1; // Default to Graphical mode
+    while SYSTEM_TICKS.load(Ordering::Relaxed) - start_ticks < 300 {
+        if let Some(key_input) = crate::keyboard::poll_keyboard() {
+            if let crate::keyboard::KeyboardInput::Char(c) = key_input {
+                if c == '1' {
+                    choice = 1;
+                    break;
+                } else if c == '2' {
+                    choice = 2;
+                    break;
+                }
+            }
+        }
+        core::hint::spin_loop();
+    }
+    println!();
+
+    if choice == 2 {
+        println!("Booting into Safe Mode (Command-Line Shell)...");
+        println!();
+        println!("============================================================");
+        println!("         AE RUSTANIUM BARE-METAL INTERACTIVE SHELL          ");
+        println!("============================================================");
+        println!("Type 'help' for a list of commands, or 'exit' to boot desktop.");
+        println!();
+
+        let mut cwd = String::from("/");
+        let mut history: Vec<String> = Vec::new();
+        let mut input_buffer = String::new();
+        
+        print!("rustix:{}$ ", cwd);
+        
+        loop {
+            // Check for serial port COM1 UART input
+            let mut serial_char = None;
+            {
+                let mut status_port: x86_64::instructions::port::Port<u8> = x86_64::instructions::port::Port::new(0x3F8 + 5);
+                unsafe {
+                    if (status_port.read() & 1) != 0 {
+                        let mut data_port: x86_64::instructions::port::Port<u8> = x86_64::instructions::port::Port::new(0x3F8);
+                        let b = data_port.read();
+                        serial_char = Some(b as char);
+                    }
+                }
+            }
+            
+            let key = if let Some(c) = serial_char {
+                if c == '\r' || c == '\n' {
+                    Some(crate::keyboard::KeyboardInput::Enter)
+                } else if c == '\x08' || c == '\x7F' {
+                    Some(crate::keyboard::KeyboardInput::Backspace)
+                } else if c >= ' ' && c <= '~' {
+                    Some(crate::keyboard::KeyboardInput::Char(c))
+                } else {
+                    None
+                }
+            } else {
+                crate::keyboard::poll_keyboard()
+            };
+
+            if let Some(k) = key {
+                match k {
+                    crate::keyboard::KeyboardInput::Char(c) => {
+                        input_buffer.push(c);
+                        print!("{}", c);
+                    }
+                    crate::keyboard::KeyboardInput::Backspace => {
+                        if !input_buffer.is_empty() {
+                            input_buffer.pop();
+                            print!("\x08 \x08");
+                        }
+                    }
+                    crate::keyboard::KeyboardInput::Enter => {
+                        println!();
+                        let cmd = input_buffer.trim();
+                        if !cmd.is_empty() {
+                            if cmd == "exit" {
+                                println!("Exiting Safe Mode. Booting Desktop Environment...");
+                                break;
+                            }
+                            history.push(String::from(cmd));
+                            if let Some(ref mut core_ref) = *SYSTEM_CORE.lock() {
+                                crate::shell::handle_command(cmd, core_ref, &mut cwd, &history);
+                            }
+                        }
+                        input_buffer.clear();
+                        print!("rustix:{}$ ", cwd);
+                    }
+                    _ => {}
+                }
+            }
+            
+            scheduler::SCHEDULER.lock().thread_yield();
+        }
+    }
+
     println!("[KERNEL] Starting Ring 3 Desktop Environment...");
     usermode_x86::execute_user_program(DESKTOP_PAYLOAD);
 
