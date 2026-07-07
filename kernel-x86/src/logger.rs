@@ -137,10 +137,6 @@ pub fn _print(args: fmt::Arguments) {
         let mut writer = SERIAL_WRITER.lock();
         let _ = writer.write_str(&msg);
         append_log(&msg);
-
-        if crate::SAFE_MODE_ACTIVE.load(Ordering::Relaxed) {
-            crate::boot_print_raw(&msg);
-        }
     } else {
         let mut writer = SERIAL_WRITER.lock();
         let _ = writer.write_fmt(args);

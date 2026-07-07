@@ -237,33 +237,28 @@ pub fn poll_keyboard() -> Option<KeyboardInput> {
         return Some(input);
     }
 
-    // Only fallback to manual port polling if hardware interrupts are disabled
-    if !x86_64::instructions::interrupts::are_enabled() {
-        unsafe {
-            let mut status_port: Port<u8> = Port::new(0x64);
-            let status = status_port.read();
-            // Bit 0: Output buffer full (data is ready to be read from port 0x60)
-            if (status & 1) != 0 {
-                let mut data_port: Port<u8> = Port::new(0x60);
-                let byte = data_port.read();
-                
-                // Bit 5: Auxiliary device output buffer full (data belongs to the mouse)
-                if (status & 0x20) != 0 {
-                    // Forward the mouse byte to the mouse driver and return None (no keyboard input)
-                    crate::mouse::handle_mouse_interrupt(byte);
-                    None
-                } else {
-                    // Standard keyboard scancode
-                    x86_64::instructions::interrupts::without_interrupts(|| {
-                        crate::interrupts::KEYBOARD_STATE.lock().handle_scancode(byte)
-                    })
-                }
-            } else {
+    unsafe {
+        let mut status_port: Port<u8> = Port::new(0x64);
+        let status = status_port.read();
+        // Bit 0: Output buffer full (data is ready to be read from port 0x60)
+        if (status & 1) != 0 {
+            let mut data_port: Port<u8> = Port::new(0x60);
+            let byte = data_port.read();
+            
+            // Bit 5: Auxiliary device output buffer full (data belongs to the mouse)
+            if (status & 0x20) != 0 {
+                // Forward the mouse byte to the mouse driver and return None (no keyboard input)
+                crate::mouse::handle_mouse_interrupt(byte);
                 None
+            } else {
+                // Standard keyboard scancode
+                x86_64::instructions::interrupts::without_interrupts(|| {
+                    crate::interrupts::KEYBOARD_STATE.lock().handle_scancode(byte)
+                })
             }
+        } else {
+            None
         }
-    } else {
-        None
     }
 }
 

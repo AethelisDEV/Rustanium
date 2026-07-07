@@ -198,14 +198,6 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Rationale**: Delivers a premium settings configuration interface matching modern general-purpose desktop operating systems and boosts out-of-the-box frame rates by disabling resource-heavy drop shadow calculations.
 * **Location**: `usermode-desktop/src/state.rs`, `usermode-desktop/src/settings.rs`, `usermode-desktop/src/render.rs`, and `usermode-desktop/src/input.rs`
 
-### 23. Boot Runlevel Target States (Graphical vs. CLI Safe Mode)
-* **Date**: July 07, 2026
-* **Description**: Added boot runlevel target selection support at early kernel startup, letting the system boot into Graphical Desktop (default) or an interactive Command-Line Interface (Safe Mode).
-  * **Timed Selection Menu (`main.rs`)**: Implemented a 3-second (300 PIT ticks) keyboard polling menu using the system timer to choose the target state.
-  * **Interactive CLI Safe Mode (`main.rs`)**: Integrated a kernel-level interactive loop when Safe Mode is selected. It reads input from the PS/2 keyboard or the COM1 serial UART, processes commands using the VFS `shell::handle_command` parser, echoes characters, and transitions to Graphical Desktop upon entering `exit`.
-* **Rationale**: Introduces support for runlevels / target states to allow emergency diagnostics and file system recovery when the graphical interface is not needed or fails.
-* **Location**: `kernel-x86/src/main.rs`
-
 ---
 
 ## 📊 Visual Telemetry & Interface Enhancements
