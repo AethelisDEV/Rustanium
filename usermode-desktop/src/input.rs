@@ -9,6 +9,7 @@
 use crate::state::{
     WINDOW_BACKING_STORES, SCREEN_WIDTH, SCREEN_HEIGHT,
     START_MENU_OPEN, START_MENU_ANIMATING, SHADOWS_ENABLED,
+    ACTIVE_SETTINGS_TAB,
 };
 use core::sync::atomic::Ordering;
 use crate::window::{
@@ -74,7 +75,50 @@ pub fn handle_input_event(
             }
         }
 
-        if terminal_focused {
+        let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+        {
+            let mut dbg_buf = [0u8; 128];
+            let mut w = crate::utils::StrbufWriter::new(&mut dbg_buf);
+            let _ = core::fmt::write(&mut w, format_args!("[DE] Key: {}, Menu Open: {}\n", key, start_menu_open));
+            crate::utils::serial_print(w.as_str());
+        }
+        if start_menu_open {
+            if key == 0x1001 { // Enter
+                let mut q_buf = [0u8; 64];
+                let query_str = crate::state::SEARCH_QUERY.get_str(&mut q_buf);
+                let mut found_app = None;
+                for app in crate::graphics::compositor::ALL_APPS.iter() {
+                    if crate::graphics::compositor::matches_search(app.title, query_str) {
+                        found_app = Some(app);
+                        break;
+                    }
+                }
+                if let Some(app) = found_app {
+                    if app.id == 5 {
+                        let msg = "Shutting down system...\n";
+                        let _ = sys_write(2, msg.as_ptr(), msg.len());
+                        syscall0(3);
+                    } else {
+                        focus_window_by_id(app.id);
+                        for k in 0..5 {
+                            WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
+                        }
+                        dirty_tracker.mark_all_dirty();
+                        START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                        START_MENU_OPEN.store(false, Ordering::Relaxed);
+                    }
+                }
+            } else if key == 0x1000 { // Backspace
+                crate::state::SEARCH_QUERY.pop();
+                *needs_redraw = true;
+            } else if key < 0x1000 {
+                let c = (key as u8) as char;
+                if c.is_ascii_graphic() || c == ' ' {
+                    crate::state::SEARCH_QUERY.push(c);
+                    *needs_redraw = true;
+                }
+            }
+        } else if terminal_focused {
             if key == 0x1001 { // Enter
                 term_process_command();
             } else if key == 0x1000 { // Backspace
@@ -95,31 +139,8 @@ pub fn handle_input_event(
         let in_dock_zone = state.cursor_y >= (sh - 120);
         let prev_in_dock_zone = state.prev_mouse_y >= (sh - 120);
         
-        let in_start_menu_zone = if start_menu_open {
-            let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, state.cursor_x, state.cursor_y);
-            let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-            let menu_w = 220i32;
-            let menu_h = 185i32;
-            let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-            let menu_y = (sh - 82) - menu_h - 12;
-            state.cursor_x >= menu_x && state.cursor_x < menu_x + menu_w &&
-            state.cursor_y >= menu_y && state.cursor_y < menu_y + menu_h
-        } else {
-            false
-        };
-        
-        let prev_in_start_menu_zone = if start_menu_open {
-            let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, state.prev_mouse_x, state.prev_mouse_y);
-            let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-            let menu_w = 220i32;
-            let menu_h = 185i32;
-            let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-            let menu_y = (sh - 82) - menu_h - 12;
-            state.prev_mouse_x >= menu_x && state.prev_mouse_x < menu_x + menu_w &&
-            state.prev_mouse_y >= menu_y && state.prev_mouse_y < menu_y + menu_h
-        } else {
-            false
-        };
+        let in_start_menu_zone = start_menu_open;
+        let prev_in_start_menu_zone = start_menu_open;
 
         if left_clicked == 1 || state.prev_left_clicked == 1 || in_dock_zone || prev_in_dock_zone || in_start_menu_zone || prev_in_start_menu_zone {
             *needs_redraw = true;
@@ -133,51 +154,58 @@ pub fn handle_input_event(
                 // Mouse Down Click
                 let mut event_consumed = false;
                 let start_menu_animating = START_MENU_ANIMATING.load(Ordering::Relaxed);
-                let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, state.cursor_x, state.cursor_y);
+                let (_dock_start_x, _dock_w, _dock_sizes, _dock_xs) = get_dock_layout(sw, sh, state.cursor_x, state.cursor_y);
                 let dock_y = sh - 82;
                 
                 if start_menu_open && !start_menu_animating {
-                    let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-                    let menu_w = 220i32;
-                    let menu_h = 220i32;
-                    let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-                    let menu_y = dock_y - menu_h - 12;
+                    event_consumed = true;
+                    let mut q_buf = [0u8; 64];
+                    let query_str = crate::state::SEARCH_QUERY.get_str(&mut q_buf);
                     
-                    if state.cursor_x >= menu_x && state.cursor_x < menu_x + menu_w &&
-                       state.cursor_y >= menu_y && state.cursor_y < menu_y + menu_h {
-                        event_consumed = true;
-                        for i in 0..5 {
-                            let iy = menu_y + 44 + (i as i32) * 33;
-                            if state.cursor_x >= menu_x + 8 && state.cursor_x < menu_x + menu_w - 8 &&
-                               state.cursor_y >= iy && state.cursor_y < iy + 27 {
-                                if i == 0 {
-                                    focus_window_by_id(0); // Metrics
-                                } else if i == 1 {
-                                    focus_window_by_id(2); // Files
-                                } else if i == 2 {
-                                    focus_window_by_id(1); // Console
-                                } else if i == 3 {
-                                    focus_window_by_id(3); // Settings
-                                } else if i == 4 {
-                                    let _ = sys_write(2, "Shutting down system...\n".as_ptr(), 24);
-                                    syscall0(3);
-                                }
-                                for k in 0..4 {
-                                    WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
-                                }
-                                dirty_tracker.mark_all_dirty();
-                                START_MENU_ANIMATING.store(true, Ordering::Relaxed);
-                                START_MENU_OPEN.store(false, Ordering::Relaxed);
-                                break;
-                            }
+                    let mut matched_apps = [None; 6];
+                    let mut matched_count = 0;
+                    for app in crate::graphics::compositor::ALL_APPS.iter() {
+                        if crate::graphics::compositor::matches_search(app.title, query_str) {
+                            matched_apps[matched_count] = Some(app);
+                            matched_count += 1;
                         }
-                    } else {
-                        let on_launchpad = state.cursor_x >= dock_xs[0] as i32 && state.cursor_x < (dock_xs[0] + dock_sizes[0]) as i32 &&
-                                           state.cursor_y >= dock_y && state.cursor_y < dock_y + 72;
-                        if !on_launchpad {
+                    }
+                    
+                    let mut clicked_app = None;
+                    for idx in 0..matched_count {
+                        let app = matched_apps[idx].unwrap();
+                        let (cx, cy, cw, ch) = crate::graphics::compositor::get_app_card_layout(idx, matched_count, sw, sh);
+                        if state.cursor_x >= cx && state.cursor_x < cx + cw &&
+                           state.cursor_y >= cy && state.cursor_y < cy + ch {
+                            clicked_app = Some(app);
+                            break;
+                        }
+                    }
+                    
+                    if let Some(app) = clicked_app {
+                        if app.id == 5 {
+                            let msg = "Shutting down system...\n";
+                            let _ = sys_write(2, msg.as_ptr(), msg.len());
+                            syscall0(3);
+                        } else {
+                            focus_window_by_id(app.id);
+                            for k in 0..5 {
+                                WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
+                            }
+                            dirty_tracker.mark_all_dirty();
                             START_MENU_ANIMATING.store(true, Ordering::Relaxed);
                             START_MENU_OPEN.store(false, Ordering::Relaxed);
-                            event_consumed = true;
+                        }
+                    } else {
+                        // Check if clicked outside of the dock or on it
+                        let on_dock = state.cursor_y >= dock_y && state.cursor_y < dock_y + 72 &&
+                                      state.cursor_x >= _dock_start_x as i32 && state.cursor_x < (_dock_start_x + _dock_w) as i32;
+                        if !on_dock {
+                            START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                            START_MENU_OPEN.store(false, Ordering::Relaxed);
+                        } else {
+                            // Let dock click handler process it (set event_consumed = false)
+                            event_consumed = false;
                         }
                     }
                 }
@@ -200,7 +228,14 @@ pub fn handle_input_event(
                                     START_MENU_ANIMATING.store(true, Ordering::Relaxed);
                                     let open = START_MENU_OPEN.load(Ordering::Relaxed);
                                     START_MENU_OPEN.store(!open, Ordering::Relaxed);
+                                    if !open {
+                                        crate::state::SEARCH_QUERY.clear();
+                                    }
                                 } else {
+                                    if START_MENU_OPEN.load(Ordering::Relaxed) {
+                                        START_MENU_OPEN.store(false, Ordering::Relaxed);
+                                        START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                                    }
                                     let win_id = match i {
                                         1 => 0, // Metrics
                                         2 => 2, // Files
@@ -331,12 +366,33 @@ pub fn handle_input_event(
                                             let rx = state.cursor_x - ax;
                                             let ry = state.cursor_y - ay;
                                             
-                                            if rx >= 24 && rx <= (win.width as i32 - 24) &&
-                                               ry >= 110 && ry <= 166 {
-                                                let shadows_on = SHADOWS_ENABLED.load(Ordering::Relaxed);
-                                                SHADOWS_ENABLED.store(!shadows_on, Ordering::Relaxed);
-                                                *needs_redraw = true;
-                                                dirty_tracker.mark_all_dirty();
+                                            if rx >= 10 && rx <= 120 {
+                                                // Sidebar click check
+                                                if ry >= 50 && ry < 76 {
+                                                    ACTIVE_SETTINGS_TAB.store(0, Ordering::Relaxed);
+                                                    *needs_redraw = true;
+                                                    dirty_tracker.mark_all_dirty();
+                                                } else if ry >= 82 && ry < 108 {
+                                                    ACTIVE_SETTINGS_TAB.store(1, Ordering::Relaxed);
+                                                    *needs_redraw = true;
+                                                    dirty_tracker.mark_all_dirty();
+                                                } else if ry >= 114 && ry < 140 {
+                                                    ACTIVE_SETTINGS_TAB.store(2, Ordering::Relaxed);
+                                                    *needs_redraw = true;
+                                                    dirty_tracker.mark_all_dirty();
+                                                }
+                                            } else if rx >= 150 && rx <= (win.width as i32 - 24) {
+                                                // Right-pane content check
+                                                let active_tab = ACTIVE_SETTINGS_TAB.load(Ordering::Relaxed);
+                                                if active_tab == 0 {
+                                                    // Appearance Tab
+                                                    if ry >= 110 && ry <= 166 {
+                                                        let shadows_on = SHADOWS_ENABLED.load(Ordering::Relaxed);
+                                                        SHADOWS_ENABLED.store(!shadows_on, Ordering::Relaxed);
+                                                        *needs_redraw = true;
+                                                        dirty_tracker.mark_all_dirty();
+                                                    }
+                                                }
                                             }
                                         }
                                         
@@ -479,7 +535,44 @@ pub fn handle_serial_input(
             }
         }
 
-        if terminal_focused {
+        let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+        if start_menu_open {
+            for i in 0..read_bytes {
+                let byte = serial_buf[i];
+                if byte == b'\r' || byte == b'\n' {
+                    let mut q_buf = [0u8; 64];
+                    let query_str = crate::state::SEARCH_QUERY.get_str(&mut q_buf);
+                    let mut found_app = None;
+                    for app in crate::graphics::compositor::ALL_APPS.iter() {
+                        if crate::graphics::compositor::matches_search(app.title, query_str) {
+                            found_app = Some(app);
+                            break;
+                        }
+                    }
+                    if let Some(app) = found_app {
+                        if app.id == 5 {
+                            let msg = "Shutting down system...\n";
+                            let _ = sys_write(2, msg.as_ptr(), msg.len());
+                            syscall0(3);
+                        } else {
+                            focus_window_by_id(app.id);
+                            for k in 0..5 {
+                                WINDOW_BACKING_STORES[k].is_dirty.store(true, Ordering::Relaxed);
+                            }
+                            dirty_tracker.mark_all_dirty();
+                            START_MENU_ANIMATING.store(true, Ordering::Relaxed);
+                            START_MENU_OPEN.store(false, Ordering::Relaxed);
+                        }
+                    }
+                } else if byte == 0x08 || byte == 0x7F {
+                    crate::state::SEARCH_QUERY.pop();
+                    *needs_redraw = true;
+                } else if byte >= 32 && byte <= 126 {
+                    crate::state::SEARCH_QUERY.push(byte as char);
+                    *needs_redraw = true;
+                }
+            }
+        } else if terminal_focused {
             for i in 0..read_bytes {
                 let byte = serial_buf[i];
                 if byte == b'\r' || byte == b'\n' {

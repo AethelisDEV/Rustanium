@@ -195,3 +195,28 @@ pub fn draw_vector_radiation_icon(x: i32, y: i32, size: i32) {
     // Bottom-right blade
     draw_rect_alpha(cx + 3, cy + 5, 7, 4, 235, 140, 40, 255);
 }
+
+/// Renders a modern red standby power symbol vector icon for the Shut Down action.
+///
+/// # Parameters
+/// * `x` - Left coordinate of the icon boundary.
+/// * `y` - Top coordinate of the icon boundary.
+/// * `size` - Width and height bounding box of the square icon.
+pub fn draw_vector_shutdown_icon(x: i32, y: i32, size: i32) {
+    let r = (size as f32 * 0.15) as i32;
+    // Dark red-gray container
+    draw_rounded_rect_alpha(x, y, size, size, r.max(3), 44, 24, 24, 255);
+    // Red glowing border
+    draw_rounded_rect_outline_alpha(x, y, size, size, r.max(3), 235, 70, 70, 1, 100);
+    
+    let cx = x + size / 2;
+    let cy = y + size / 2;
+    let line_len = size / 4;
+    
+    // Draw power symbol stand-by line in the center-top
+    draw_line_thick(cx, cy - line_len, cx, cy - 2, 235, 70, 70);
+    
+    // Draw power symbol standby outer circle/arc representation
+    draw_rounded_rect_outline_alpha(cx - line_len, cy - line_len + 4, line_len * 2, line_len * 2, line_len / 2, 235, 70, 70, 2, 255);
+}
+

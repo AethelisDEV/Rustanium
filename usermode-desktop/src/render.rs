@@ -44,22 +44,12 @@ pub fn draw_compositor_frame(
 
         // Populate dirty tracker dynamically
         let is_anim = anim_running || START_MENU_ANIMATING.load(Ordering::Relaxed);
-        if dirty_tracker.is_all_dirty() || is_anim {
+        let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+        if dirty_tracker.is_all_dirty() || is_anim || start_menu_open {
             dirty_tracker.mark_all_dirty();
         } else {
             // 1. Ticks CPU/RAM telemetry text area at top-right
             dirty_tracker.add_rect(sw - 200, 0, 200, 30);
-            
-            // 2. Start menu Launchpad region if open or animating
-            if START_MENU_OPEN.load(Ordering::Relaxed) || START_MENU_ANIMATING.load(Ordering::Relaxed) {
-                let (_dock_start_x, _dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
-                let launchpad_cx = dock_xs[0] + dock_sizes[0] / 2.0;
-                let menu_w = 220;
-                let menu_h = 220;
-                let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-                let menu_y = (sh - 82) - menu_h - 12;
-                dirty_tracker.add_rect(menu_x, menu_y, menu_w, menu_h);
-            }
             
             // 3. Dock region
             let (dock_start_x, dock_w, _, _) = get_dock_layout(sw, sh, cursor_x, cursor_y);
@@ -94,7 +84,8 @@ pub fn draw_compositor_frame(
                     let store = &WINDOW_BACKING_STORES[win.id as usize];
                     let is_maximized = win.is_maximized;
                     
-                    if store.is_dirty.load(Ordering::Relaxed) || win.is_animating || is_maximized {
+                    let is_live = win.id == 3;
+                    if store.is_dirty.load(Ordering::Relaxed) || win.is_animating || is_maximized || is_live {
                         draw_window(win);
                         
                         if win.id == 0 {
@@ -104,12 +95,12 @@ pub fn draw_compositor_frame(
                         } else if win.id == 2 {
                             draw_file_manager(ax, ay, win.width, win.height);
                         } else if win.id == 3 {
-                            draw_settings_window(ax, ay, win.width, win.height);
+                            draw_settings_window(ax, ay, win.width, win.height, cursor_x, cursor_y, shared_info);
                         } else if win.id == 4 {
                             draw_radiation_window(ax, ay, win.width, win.height);
                         }
                         
-                        if !win.is_animating && !is_maximized {
+                        if !win.is_animating && !is_maximized && !is_live {
                             snapshot_window_backing_store(store, ax, ay, win.width, win.height);
                             store.is_dirty.store(false, Ordering::Relaxed);
                         }

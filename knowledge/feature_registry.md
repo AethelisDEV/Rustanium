@@ -128,7 +128,7 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Date**: July 05, 2026
 * **Description**: Optimized the rendering of window shadows to resolve UI lag and mouse stutter when multiple windows are open.
   * **Region Exclusion (`draw_rect_alpha_exclude`)**: Implemented a geometric difference algorithm that splits the shadow drawing rectangle into up to 4 non-overlapping outer boundary slices, completely avoiding looping over or checking pixels inside the window body.
-  * **Concentric Layer Reduction**: Reduced the soft macOS-style shadow depth from 10 concentric layers to 5 layers (using a step-by-2 loop), adjusting the alpha blend formula to preserve smooth visuals.
+  * **Concentric Layer Reduction**: Reduced the soft drop shadow depth from 10 concentric layers to 5 layers (using a step-by-2 loop), adjusting the alpha blend formula to preserve smooth visuals.
   * **Zero Unsafe Compliance**: Implemented all optimization logic in safe Rust without writing any new `unsafe` blocks, fully adhering to the project's safety standard.
 * **Rationale**: Drastically reduces the number of pixels processed during full screen composites (over 100x fewer pixel iterations for standard window shadows), eliminating CPU spikes and mouse latency.
 * **Location**: `usermode-desktop/src/graphics.rs`
@@ -138,7 +138,7 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Description**: Added a System Settings application window to the desktop environment allowing users to configure rendering behaviors dynamically.
   * **Settings Application (`settings.rs`)**: Renders the desktop performance panel featuring a clean, modern iOS-style toggle switch card for drop shadows.
   * **Interactive Switch**: Captures clicks inside the Settings window body to dynamically toggle the atomic `SHADOWS_ENABLED` state.
-  * **Icon Integration**: Extended the macOS magnified Dock to 5 items and added a modern vector slider-control/settings icon (`draw_vector_settings_icon`).
+  * **Icon Integration**: Extended the magnified Dock to 5 items and added a modern vector slider-control/settings icon (`draw_vector_settings_icon`).
   * **Launchpad & Workspace integration**: Registered settings window in `WINDOWS` array, mapped the launch action in the Launchpad menu, and scaled the Launchpad height to support 5 options.
 * **Rationale**: Gives users a dynamic, graphical control to disable expensive shadow blending, boosting performance on lower-end physical hardware.
 * **Location**: `usermode-desktop/src/settings.rs` & `usermode-desktop/src/main.rs`
@@ -175,6 +175,28 @@ This registry tracks all newly implemented features, system-level enhancements, 
   * **Compositor snapshot & restore**: Snapshots windows onto the backing store when they are redrawn (dirty) and restores them directly using fast copy operations during idle/drag states, bypassing procedural font rendering and layout loops.
 * **Rationale**: Eliminates window redraw cost when dragging other windows or moving the mouse, resulting in a lag-free visual interface.
 * **Location**: `usermode-desktop/src/state.rs`, `usermode-desktop/src/graphics.rs`, & `usermode-desktop/src/main.rs`
+
+### 21. Applications Screen & Real-time Search
+* **Date**: July 07, 2026
+* **Description**: Overhauled the Launchpad popup menu to a full-screen Applications Screen overlay with keyboard-routing real-time search.
+  * **Thread-safe state (`state.rs`)**: Implemented a 100% safe, lock-free `SearchQuery` buffer using atomic arrays.
+  * **Power Vector Icon (`icons.rs`)**: Added `draw_vector_shutdown_icon` representing a standby power key in red.
+  * **Applications Grid Layout (`compositor.rs`)**: Overhauled `draw_start_menu` to display a frosted translucent dark backdrop, a centered search box with a blinking text cursor, and a dynamically-centered grid of application cards with hover highlights and vector icons.
+  * **Keyboard Routing & Grid Clicks (`input.rs`)**: Intercepted characters and backspaces to update the search query, allowed pressing Enter to boot the first matching app, mapped clicks to cards, and cleared search state when opening the screen.
+  * **Compositor Redraws (`render.rs`)**: Configured the dirty tracker to cover the entire screen when the applications screen is active to keep cursor blink and typing updates responsive.
+* **Rationale**: Elevates the desktop user experience to a premium modern desktop general-overview paradigm, while adhering 100% to the strict Zero Unsafe Policy.
+* **Location**: `usermode-desktop/src/state.rs`, `usermode-desktop/src/graphics/icons.rs`, `usermode-desktop/src/graphics/compositor.rs`, `usermode-desktop/src/input.rs`, and `usermode-desktop/src/render.rs`
+
+### 22. Sidebar Settings & Default Shadows Disabled
+* **Date**: July 07, 2026
+* **Description**: Overhauled the Settings application to a sidebar-style layout and disabled window shadows by default.
+  * **Shadows Off by Default (`state.rs`)**: Changed `SHADOWS_ENABLED` default value to false, reducing initial composite rendering cycles.
+  * **Sidebar Selection State (`state.rs`)**: Declared `ACTIVE_SETTINGS_TAB` variable to track active categories.
+  * **Sidebar & Tabs layout (`settings.rs`)**: Overhauled `draw_settings_window` to render a left-aligned sidebar with hovering highlight tabs (Appearance, System, About) and separate right-aligned settings panels.
+  * **Compositor Caching Bypass (`render.rs`)**: Configured the compositor loop to skip backing-store snapshot caching for the Settings app to guarantee real-time sidebar mouse hovers and system metrics updates.
+  * **Tab click routing (`input.rs`)**: Integrated category sidebar bounds checks to update tab state, and restricted the appearance card shadow toggle to only fire when the Appearance tab is selected.
+* **Rationale**: Delivers a premium settings configuration interface matching modern general-purpose desktop operating systems and boosts out-of-the-box frame rates by disabling resource-heavy drop shadow calculations.
+* **Location**: `usermode-desktop/src/state.rs`, `usermode-desktop/src/settings.rs`, `usermode-desktop/src/render.rs`, and `usermode-desktop/src/input.rs`
 
 ---
 

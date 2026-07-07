@@ -9,7 +9,6 @@
 use crate::state::{BACK_BUFFER, SCREEN_FORMAT, SCREEN_WIDTH, SCREEN_HEIGHT};
 use core::sync::atomic::Ordering;
 use crate::graphics::core::{draw_pixel, draw_rect_alpha, draw_rounded_rect_alpha, draw_rounded_rect_outline_alpha};
-use crate::graphics::shadow::{draw_window_shadow};
 use crate::atlas_font::{draw_text_atlas, measure_text, AtlasSize, AtlasWeight};
 
 /// Draws default cursor onto BACK_BUFFER.
@@ -182,58 +181,205 @@ pub fn restore_window_backing_store(store: &crate::state::WindowBackingStore, wx
     }
 }
 
+/// Represents descriptive metadata for an available system application in the grid.
+pub struct AppInfo {
+    /// Title displayed in the grid underneath the icon.
+    pub title: &'static str,
+    /// Bounding window identifier used to select and focus the application.
+    pub id: u8,
+    /// Numeric identifier mapping to specific icon drawing routines.
+    pub icon_type: u8,
+}
+
+/// Static registry of all available applications in the user desktop environment.
+pub const ALL_APPS: [AppInfo; 6] = [
+    AppInfo { title: "System Monitor", id: 0, icon_type: 0 },
+    AppInfo { title: "Console", id: 1, icon_type: 1 },
+    AppInfo { title: "File Manager", id: 2, icon_type: 2 },
+    AppInfo { title: "Settings", id: 3, icon_type: 3 },
+    AppInfo { title: "Radiation Simulator", id: 4, icon_type: 4 },
+    AppInfo { title: "Shut Down", id: 5, icon_type: 5 },
+];
+
+/// Checks if the query string is a case-insensitive substring of the title string.
+pub fn matches_search(title: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let q_bytes = query.as_bytes();
+    let t_bytes = title.as_bytes();
+    if q_bytes.len() > t_bytes.len() {
+        return false;
+    }
+
+    for i in 0..=(t_bytes.len() - q_bytes.len()) {
+        let mut matched = true;
+        for j in 0..q_bytes.len() {
+            let tc = t_bytes[i + j];
+            let qc = q_bytes[j];
+            let tc_lower = if tc >= b'A' && tc <= b'Z' { tc - b'A' + b'a' } else { tc };
+            let qc_lower = if qc >= b'A' && qc <= b'Z' { qc - b'A' + b'a' } else { qc };
+            if tc_lower != qc_lower {
+                matched = false;
+                break;
+            }
+        }
+        if matched {
+            return true;
+        }
+    }
+    false
+}
+
+/// Computes the layout coordinates for an application card within the filtered list.
+///
+/// # Parameters
+/// * `idx` - The 0-based index of the application in the filtered list.
+/// * `matched_count` - The total number of applications matching the search query.
+/// * `sw` - Screen width in pixels.
+/// * `sh` - Screen height in pixels.
+///
+/// # Returns
+/// `(x, y, w, h)` coordinates of the card.
+pub fn get_app_card_layout(idx: usize, matched_count: usize, sw: i32, _sh: i32) -> (i32, i32, i32, i32) {
+    let card_w = 160;
+    let card_h = 140;
+    let h_space = 40;
+    let v_space = 30;
+    let grid_y = 180;
+
+    let r = idx / 3;
+    let c = idx % 3;
+
+    // Determine how many items are in the current row
+    let row_start_idx = r * 3;
+    let row_items = core::cmp::min(3, matched_count - row_start_idx);
+
+    let total_row_w = row_items as i32 * card_w + (row_items as i32 - 1) * h_space;
+    let row_start_x = (sw - total_row_w) / 2;
+
+    let x = row_start_x + c as i32 * (card_w + h_space);
+    let y = grid_y + r as i32 * (card_h + v_space);
+
+    (x, y, card_w, card_h)
+}
+
 /// Renders the Launchpad overlay when sliding opened.
-pub fn draw_start_menu(cursor_x: i32, cursor_y: i32, tb_y: i32, progress: f32) {
+pub fn draw_start_menu(cursor_x: i32, cursor_y: i32, _tb_y: i32, progress: f32) {
     let sw = SCREEN_WIDTH.load(Ordering::Relaxed);
     let sh = SCREEN_HEIGHT.load(Ordering::Relaxed);
-    let (_dock_start_x, _dock_w, _sizes, xs) = crate::taskbar::get_dock_layout(sw, sh, cursor_x, cursor_y);
-    let launchpad_cx = xs[0] + _sizes[0] / 2.0;
-    let menu_w = 220i32;
-    let menu_h = 220i32;
-    let menu_x = (launchpad_cx - menu_w as f32 / 2.0) as i32;
-    let radius = 12;
 
-    let full_y = tb_y - menu_h - 12;
-    let menu_y = (tb_y as f32 + (full_y - tb_y) as f32 * progress) as i32;
+    // 1. Frosted Translucent Dark Backdrop
+    let bg_alpha = (200.0 * progress) as u8;
+    draw_rect_alpha(0, 24, sw, sh - 24, 12, 14, 20, bg_alpha);
 
-    draw_window_shadow(menu_x, menu_y, menu_w, menu_h);
-    draw_rounded_rect_alpha(menu_x, menu_y, menu_w, menu_h, radius, 24, 24, 28, 240);
-    draw_rounded_rect_outline_alpha(menu_x, menu_y, menu_w, menu_h, radius, 70, 75, 95, 1, 120);
+    // 2. Search Bar
+    let search_w = 360;
+    let search_h = 42;
+    let search_x = (sw - search_w) / 2;
+    let search_y = 60;
+    let search_radius = 21;
 
-    let header_title = "L A U N C H P A D";
-    let tw = measure_text(header_title, AtlasSize::Small, AtlasWeight::Regular);
-    let tx = menu_x + (menu_w - tw) / 2;
-    draw_text_atlas(
-        tx, menu_y + 12,
-        header_title,
-        210, 220, 235,
-        AtlasSize::Small,
-        AtlasWeight::Regular,
-    );
-    draw_rect_alpha(menu_x + 12, menu_y + 34, menu_w - 24, 1, 60, 65, 80, 100);
+    let bar_alpha = (180.0 * progress) as u8;
+    let outline_alpha = (100.0 * progress) as u8;
 
-    let items = ["System Monitor", "Files", "Console", "Settings", "Shut Down"];
-    for (i, item) in items.iter().enumerate() {
-        let iy      = menu_y + 44 + (i as i32) * 33;
-        let hovered = cursor_x >= menu_x + 8 && cursor_x < menu_x + menu_w - 8 &&
-                      cursor_y >= iy           && cursor_y < iy + 27;
-        if hovered {
-            draw_rounded_rect_alpha(menu_x + 8, iy, menu_w - 16, 27, 6, 61, 174, 233, 255);
-            draw_text_atlas(
-                menu_x + 18, iy + 6,
-                item,
-                255, 255, 255,
-                AtlasSize::Small,
-                AtlasWeight::SemiBold,
-            );
-        } else {
-            draw_text_atlas(
-                menu_x + 18, iy + 6,
-                item,
-                190, 200, 215,
-                AtlasSize::Small,
-                AtlasWeight::Regular,
-            );
+    draw_rounded_rect_alpha(search_x, search_y, search_w, search_h, search_radius, 45, 48, 62, bar_alpha);
+    draw_rounded_rect_outline_alpha(search_x, search_y, search_w, search_h, search_radius, 90, 95, 115, 1, outline_alpha);
+
+    // Get search query string
+    let mut q_buf = [0u8; 64];
+    let query_str = crate::state::SEARCH_QUERY.get_str(&mut q_buf);
+
+    let text_x = search_x + 20;
+    let text_y = search_y + (search_h - 14) / 2;
+
+    if query_str.is_empty() {
+        let placeholder = "Search applications...";
+        let text_r = (120.0 * progress) as u8;
+        let text_g = (125.0 * progress) as u8;
+        let text_b = (140.0 * progress) as u8;
+        draw_text_atlas(text_x, text_y, placeholder, text_r, text_g, text_b, AtlasSize::Small, AtlasWeight::Regular);
+    } else {
+        let text_r = (255.0 * progress) as u8;
+        let text_g = (255.0 * progress) as u8;
+        let text_b = (255.0 * progress) as u8;
+        draw_text_atlas(text_x, text_y, query_str, text_r, text_g, text_b, AtlasSize::Small, AtlasWeight::Regular);
+
+        // Blinking cursor
+        let ticks = unsafe {
+            let shared_info = crate::syscalls::sys_get_shared_info();
+            (*shared_info).system_ticks.load(Ordering::Relaxed)
+        };
+        if (ticks / 30) % 2 == 0 {
+            let qw = measure_text(query_str, AtlasSize::Small, AtlasWeight::Regular);
+            let cur_x = text_x + qw + 2;
+            let cur_y = text_y - 2;
+            let cur_alpha = (230.0 * progress) as u8;
+            draw_rect_alpha(cur_x, cur_y, 1, 18, 255, 255, 255, cur_alpha);
+        }
+    }
+
+    // 3. Application Grid
+    let mut matched_apps = [None; 6];
+    let mut matched_count = 0;
+    for app in ALL_APPS.iter() {
+        if matches_search(app.title, query_str) {
+            matched_apps[matched_count] = Some(app);
+            matched_count += 1;
+        }
+    }
+
+    if matched_count == 0 {
+        let no_apps_text = "No applications found";
+        let tw = measure_text(no_apps_text, AtlasSize::Medium, AtlasWeight::Regular);
+        let tx = (sw - tw) / 2;
+        let ty = 260;
+        let tr = (160.0 * progress) as u8;
+        let tg = (170.0 * progress) as u8;
+        let tb = (185.0 * progress) as u8;
+        draw_text_atlas(tx, ty, no_apps_text, tr, tg, tb, AtlasSize::Medium, AtlasWeight::Regular);
+    } else {
+        for idx in 0..matched_count {
+            let app = matched_apps[idx].unwrap();
+            let (cx, cy, cw, ch) = get_app_card_layout(idx, matched_count, sw, sh);
+
+            // Hover check
+            let hovered = cursor_x >= cx && cursor_x < cx + cw &&
+                          cursor_y >= cy && cursor_y < cy + ch;
+
+            if hovered {
+                let card_alpha = (30.0 * progress) as u8;
+                draw_rounded_rect_alpha(cx, cy, cw, ch, 12, 255, 255, 255, card_alpha);
+                draw_rounded_rect_outline_alpha(cx, cy, cw, ch, 12, 255, 255, 255, 1, (40.0 * progress) as u8);
+            }
+
+            // Draw Application Vector Icon (scaled size 56x56)
+            let icon_size = 56;
+            let icon_x = cx + (cw - icon_size) / 2;
+            let icon_y = cy + 20;
+
+            match app.icon_type {
+                0 => crate::graphics::draw_vector_metrics_icon(icon_x, icon_y, icon_size),
+                1 => crate::graphics::draw_vector_terminal_icon(icon_x, icon_y, icon_size),
+                2 => crate::graphics::draw_vector_folder_icon(icon_x, icon_y, icon_size),
+                3 => crate::graphics::draw_vector_settings_icon(icon_x, icon_y, icon_size),
+                4 => crate::graphics::draw_vector_radiation_icon(icon_x, icon_y, icon_size),
+                5 => crate::graphics::draw_vector_shutdown_icon(icon_x, icon_y, icon_size),
+                _ => {}
+            }
+
+            // Draw Label
+            let label_weight = if hovered { AtlasWeight::SemiBold } else { AtlasWeight::Regular };
+            let label_r = if hovered { (255.0 * progress) as u8 } else { (200.0 * progress) as u8 };
+            let label_g = if hovered { (255.0 * progress) as u8 } else { (205.0 * progress) as u8 };
+            let label_b = if hovered { (255.0 * progress) as u8 } else { (215.0 * progress) as u8 };
+
+            let lw = measure_text(app.title, AtlasSize::Small, label_weight);
+            let lx = cx + (cw - lw) / 2;
+            let ly = cy + 92;
+
+            draw_text_atlas(lx, ly, app.title, label_r, label_g, label_b, AtlasSize::Small, label_weight);
         }
     }
 }
+
