@@ -19,17 +19,17 @@ use core::sync::atomic::Ordering;
 /// Calculate the dynamic, magnified layout coordinates of the Dock.
 /// Returns: (start_x, total_w, sizes, xs)
 pub fn get_dock_layout(sw: i32, sh: i32, cursor_x: i32, cursor_y: i32) -> (f32, f32, [f32; 5], [f32; 5]) {
-    let base_size = 42.0f32;
-    let max_size = 64.0f32;
-    let spacing = 14.0f32;
-    let range = 120.0f32;
+    let base_size = 36.0f32;
+    let max_size = 52.0f32;
+    let spacing = 12.0f32;
+    let range = 100.0f32;
     
     let unscaled_item_w = base_size + spacing;
     let unscaled_total_w = 5.0 * unscaled_item_w + spacing;
     let unscaled_start_x = (sw as f32 - unscaled_total_w) / 2.0;
     
     // Magnification only triggers if cursor is near the bottom area
-    let near_dock = cursor_y >= (sh - 100);
+    let near_dock = cursor_y >= (sh - 80);
     
     let mut sizes = [0.0f32; 5];
     for i in 0..5 {
@@ -91,12 +91,13 @@ pub fn draw_taskbar(
     // 2. macOS Floating Dock
     // ────────────────────────────────────────────────────────
     let (start_x, total_w, sizes, xs) = get_dock_layout(sw, sh, cursor_x, cursor_y);
-    let dock_y = sh - 72 - 10;
+    let dock_h = 56;
+    let dock_y = sh - dock_h - 6; // sh - 62
     
     // Draw Frosted Glass background
-    draw_rounded_rect_alpha(start_x as i32, dock_y, total_w as i32, 72, 22, 32, 32, 40, 215);
+    draw_rounded_rect_alpha(start_x as i32, dock_y, total_w as i32, dock_h, 16, 32, 32, 40, 215);
     // Draw Glass rim highlight
-    draw_rounded_rect_outline_alpha(start_x as i32, dock_y, total_w as i32, 72, 22, 90, 95, 115, 1, 90);
+    draw_rounded_rect_outline_alpha(start_x as i32, dock_y, total_w as i32, dock_h, 16, 90, 95, 115, 1, 90);
     
     // ────────────────────────────────────────────────────────
     // 3. Render Dock Items
@@ -104,8 +105,8 @@ pub fn draw_taskbar(
     for i in 0..5 {
         let size = sizes[i];
         let ix = xs[i] as i32;
-        // Align to the bottom of the Dock with an 8px offset
-        let iy = (sh - 18) - size as i32;
+        // Align to the bottom of the Dock with a 10px offset
+        let iy = (sh - 16) - size as i32;
         
         // Render corresponding vector icon
         match i {
@@ -144,8 +145,8 @@ pub fn draw_taskbar(
             }
             
             if is_open {
-                // macOS Active Dot
-                let dot_y = sh - 14;
+                // Active Dot
+                let dot_y = sh - 11;
                 let dot_x = ix + (size as i32 / 2) - 2;
                 if is_focused {
                     // White active dot for focused app

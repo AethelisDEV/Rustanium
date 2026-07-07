@@ -110,7 +110,7 @@ pub fn draw_window(win: &Window) {
     let (ax, ay) = win.get_animated_pos();
     let w   = win.width as i32;
     let h   = win.height as i32;
-    let r   = 14;   // corner radius — macOS-like roundness
+    let r   = if win.is_maximized { 0 } else { 14 };   // corner radius — custom roundness (0 when maximized)
     let tb  = 34;   // title-bar height
 
     // ── Window body — unified dark glass ──────────────────────────

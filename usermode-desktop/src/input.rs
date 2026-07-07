@@ -155,7 +155,7 @@ pub fn handle_input_event(
                 let mut event_consumed = false;
                 let start_menu_animating = START_MENU_ANIMATING.load(Ordering::Relaxed);
                 let (_dock_start_x, _dock_w, _dock_sizes, _dock_xs) = get_dock_layout(sw, sh, state.cursor_x, state.cursor_y);
-                let dock_y = sh - 82;
+                let dock_y = sh - 62;
                 
                 if start_menu_open && !start_menu_animating {
                     event_consumed = true;
@@ -198,7 +198,7 @@ pub fn handle_input_event(
                         }
                     } else {
                         // Check if clicked outside of the dock or on it
-                        let on_dock = state.cursor_y >= dock_y && state.cursor_y < dock_y + 72 &&
+                         let on_dock = state.cursor_y >= dock_y && state.cursor_y < dock_y + 56 &&
                                       state.cursor_x >= _dock_start_x as i32 && state.cursor_x < (_dock_start_x + _dock_w) as i32;
                         if !on_dock {
                             START_MENU_ANIMATING.store(true, Ordering::Relaxed);
@@ -213,9 +213,9 @@ pub fn handle_input_event(
                 if !event_consumed {
                     // Check Dock Click
                     let (dock_start_x, dock_w, dock_sizes, dock_xs) = get_dock_layout(sw, sh, state.cursor_x, state.cursor_y);
-                    let dock_y = sh - 82;
-                    
-                    if state.cursor_y >= dock_y && state.cursor_y < dock_y + 72 &&
+                     let dock_y = sh - 62;
+                     
+                     if state.cursor_y >= dock_y && state.cursor_y < dock_y + 56 &&
                        state.cursor_x >= dock_start_x as i32 && state.cursor_x < (dock_start_x + dock_w) as i32 {
                         
                         event_consumed = true;
