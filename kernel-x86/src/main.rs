@@ -57,6 +57,9 @@ pub static GRAPHICS: Spinlock<Option<framebuffer::UefiGraphics>> = Spinlock::new
 /// Global running system ticks count.
 pub static SYSTEM_TICKS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
+/// Global flag routing print!/println! output directly to the graphical GOP screen.
+pub static SAFE_MODE_ACTIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 /// A simple, safe spinlock implementation for bare-metal concurrency control.
 pub struct Spinlock<T> {
     lock: AtomicBool,
@@ -217,7 +220,16 @@ fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
     // 2. Initialize GOP graphics if available
     if let Some(fb) = boot_info.framebuffer.as_mut() {
         let graphics = framebuffer::UefiGraphics::new(fb);
-        *GRAPHICS.lock() = Some(graphics);
+        let mut lock = GRAPHICS.lock();
+        *lock = Some(graphics);
+        
+        // Enable Safe Mode print routing to GOP screen at early boot
+        SAFE_MODE_ACTIVE.store(true, Ordering::Relaxed);
+        
+        if let Some(ref mut g) = *lock {
+            g.clear(framebuffer::Color::new(10, 12, 18));
+            g.swap_buffers();
+        }
     }
 
     // 3. Enable SSE, initialize GDT/TSS and Syscalls, and configure 8259 PIC + IDT interrupts
@@ -381,6 +393,13 @@ fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
         }
     }
 
+    // Disable Safe Mode print routing and clear screen to black before launching desktop
+    SAFE_MODE_ACTIVE.store(false, Ordering::Relaxed);
+    if let Some(ref mut g) = *GRAPHICS.lock() {
+        g.clear(framebuffer::Color::new(0, 0, 0));
+        g.swap_buffers();
+    }
+
     println!("[KERNEL] Starting Ring 3 Desktop Environment...");
     usermode_x86::execute_user_program(DESKTOP_PAYLOAD);
 
@@ -428,5 +447,62 @@ fn panic(info: &PanicInfo) -> ! {
 
     loop {
         x86_64::instructions::hlt();
+    }
+}
+
+/// Helper drawing raw character stream directly onto the UEFI GOP console framebuffer.
+/// Tracks a static screen cursor position, scrolls/clears when bottom bounds are met,
+/// and handles backspace character overwriting with a solid backdrop color.
+pub fn boot_print_raw(msg: &str) {
+    unsafe {
+        static mut CURSOR_X: usize = 40;
+        static mut CURSOR_Y: usize = 40;
+        
+        let mut lock = GRAPHICS.lock();
+        if let Some(ref mut g) = *lock {
+            for c in msg.chars() {
+                if c == '\n' {
+                    CURSOR_X = 40;
+                    CURSOR_Y += 16;
+                    if CURSOR_Y >= 680 {
+                        // Clear to slate dark background
+                        g.clear(framebuffer::Color::new(10, 12, 18));
+                        CURSOR_Y = 40;
+                    }
+                } else if c == '\x08' {
+                    // Backspace - move cursor back and overwrite with solid background color
+                    if CURSOR_X > 40 {
+                        CURSOR_X -= 9;
+                        g.draw_char(
+                            CURSOR_X,
+                            CURSOR_Y,
+                            ' ',
+                            framebuffer::Color::new(255, 255, 255),
+                            Some(framebuffer::Color::new(10, 12, 18)),
+                            1
+                        );
+                    }
+                } else {
+                    if CURSOR_X + 8 >= g.width {
+                        CURSOR_X = 40;
+                        CURSOR_Y += 16;
+                        if CURSOR_Y >= 680 {
+                            g.clear(framebuffer::Color::new(10, 12, 18));
+                            CURSOR_Y = 40;
+                        }
+                    }
+                    g.draw_char(
+                        CURSOR_X,
+                        CURSOR_Y,
+                        c,
+                        framebuffer::Color::new(220, 225, 240),
+                        Some(framebuffer::Color::new(10, 12, 18)),
+                        1
+                    );
+                    CURSOR_X += 9;
+                }
+            }
+            g.swap_buffers();
+        }
     }
 }
