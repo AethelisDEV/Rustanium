@@ -603,6 +603,47 @@ pub extern "C" fn rust_syscall_handler(id: u64, arg1: u64, arg2: u64, arg3: u64,
                 u64::MAX
             }
         }
+        0x25 => {
+            // SYS_UNLINK / SYS_REMOVE: RDI=path_ptr, RSI=path_len
+            let path_ptr = arg1 as *const u8;
+            let path_len = arg2 as usize;
+            if path_ptr.is_null() || path_len == 0 || !is_user_ptr(path_ptr as u64, path_len) {
+                return u64::MAX;
+            }
+
+            let start_page = (path_ptr as u64) & !0xFFF;
+            let end_page = ((path_ptr as u64) + path_len as u64 + 4095) & !0xFFF;
+            let mut page = start_page;
+            while page < end_page {
+                unsafe {
+                    usermode_x86::map_page_user(x86_64::VirtAddr::new(page));
+                }
+                page += 4096;
+            }
+
+            let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+            let raw_path_str = match core::str::from_utf8(path_slice) {
+                Ok(s) => s,
+                Err(_) => return u64::MAX,
+            };
+
+            let mut normalized = String::new();
+            if !raw_path_str.starts_with('/') {
+                normalized.push('/');
+            }
+            normalized.push_str(raw_path_str);
+            let path_str = normalized.as_str();
+
+            let mut core_lock = SYSTEM_CORE.lock();
+            if let Some(ref mut core) = *core_lock {
+                match core.vfs.remove_node(path_str, true, &mut core.allocator) {
+                    Ok(_) => 0,
+                    Err(_) => u64::MAX,
+                }
+            } else {
+                u64::MAX
+            }
+        }
         0x30 => {
             // SYS_GET_SHARED_INFO: returns virtual address of SHARED_INFO_PAGE mapped at user address 0x300000 read-only
             let page_ptr = core::ptr::addr_of!(SHARED_INFO_PAGE);

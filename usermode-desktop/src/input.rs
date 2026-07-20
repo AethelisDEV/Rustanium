@@ -64,25 +64,33 @@ pub fn handle_input_event(
         // Keyboard Input
         let key = event.keyboard_key;
         let mut terminal_focused = false;
+        let mut file_manager_focused = false;
         unsafe {
             for i in 0..5 {
                 if let Some(ref win) = WINDOWS[i] {
-                    if win.id == 1 && win.is_focused {
-                        terminal_focused = true;
-                        break;
+                    if win.is_focused {
+                        if win.id == 1 {
+                            terminal_focused = true;
+                        } else if win.id == 2 {
+                            file_manager_focused = true;
+                        }
                     }
                 }
             }
         }
 
         let start_menu_open = START_MENU_OPEN.load(Ordering::Relaxed);
+        let fm_modal_open = crate::file_manager::FILE_MANAGER_STATE.modal_mode.load(Ordering::Relaxed) > 0;
         {
             let mut dbg_buf = [0u8; 128];
             let mut w = crate::utils::StrbufWriter::new(&mut dbg_buf);
             let _ = core::fmt::write(&mut w, format_args!("[DE] Key: {}, Menu Open: {}\n", key, start_menu_open));
             crate::utils::serial_print(w.as_str());
         }
-        if start_menu_open {
+        if fm_modal_open {
+            crate::file_manager::handle_file_manager_key(key);
+            *needs_redraw = true;
+        } else if start_menu_open {
             if key == 0x1001 { // Enter
                 let mut q_buf = [0u8; 64];
                 let query_str = crate::state::SEARCH_QUERY.get_str(&mut q_buf);
@@ -126,6 +134,9 @@ pub fn handle_input_event(
             } else if key < 0x1000 {
                 term_print_char((key as u8) as char);
             }
+        } else if file_manager_focused {
+            crate::file_manager::handle_file_manager_key(key);
+            *needs_redraw = true;
         }
     } else if event.event_type == 2 {
         // Mouse Input
@@ -435,6 +446,21 @@ pub fn handle_input_event(
                                                 dirty_tracker.mark_all_dirty();
                                             }
                                         }
+                                        
+                                        // File Manager interactivity
+                                        if win.id == 2 {
+                                            let (ax, ay) = win.get_animated_pos();
+                                            crate::file_manager::handle_file_manager_click(
+                                                state.cursor_x,
+                                                state.cursor_y,
+                                                ax,
+                                                ay,
+                                                win.width,
+                                                win.height,
+                                            );
+                                            *needs_redraw = true;
+                                            dirty_tracker.mark_all_dirty();
+                                        }
                                         break;
                                     }
                                 }
@@ -491,6 +517,17 @@ pub fn handle_input_event(
                                 win.y += dy;
                                 let (new_ax, new_ay) = win.get_animated_pos();
                                 dirty_tracker.add_rect(new_ax - 20, new_ay - 20, win.width as i32 + 40, win.height as i32 + 40);
+                            } else if win.is_focused && win.id == 2 && dy != 0 {
+                                let (ax, ay) = win.get_animated_pos();
+                                crate::file_manager::handle_file_manager_mouse_drag(
+                                    dy,
+                                    state.cursor_x,
+                                    state.cursor_y,
+                                    ax,
+                                    ay,
+                                    win.width,
+                                    win.height,
+                                );
                             }
                         }
                     }

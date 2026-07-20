@@ -84,7 +84,7 @@ pub fn draw_compositor_frame(
                     let store = &WINDOW_BACKING_STORES[win.id as usize];
                     let is_maximized = win.is_maximized;
                     
-                    let is_live = win.id == 3;
+                    let is_live = win.id == 3 || win.id == 2;
                     if store.is_dirty.load(Ordering::Relaxed) || win.is_animating || is_maximized || is_live {
                         draw_window(win);
                         
@@ -93,7 +93,7 @@ pub fn draw_compositor_frame(
                         } else if win.id == 1 {
                             draw_console_window(ax, ay);
                         } else if win.id == 2 {
-                            draw_file_manager(ax, ay, win.width, win.height);
+                            draw_file_manager(ax, ay, win.width, win.height, cursor_x, cursor_y);
                         } else if win.id == 3 {
                             draw_settings_window(ax, ay, win.width, win.height, cursor_x, cursor_y, shared_info);
                         } else if win.id == 4 {

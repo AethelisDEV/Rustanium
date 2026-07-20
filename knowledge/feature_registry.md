@@ -198,6 +198,53 @@ This registry tracks all newly implemented features, system-level enhancements, 
 * **Rationale**: Delivers a premium settings configuration interface matching modern general-purpose desktop operating systems and boosts out-of-the-box frame rates by disabling resource-heavy drop shadow calculations.
 * **Location**: `usermode-desktop/src/state.rs`, `usermode-desktop/src/settings.rs`, `usermode-desktop/src/render.rs`, and `usermode-desktop/src/input.rs`
 
+### 23. File Manager Overhaul (Phase 1: Dynamic Navigation, Breadcrumbs & Selection)
+* **Date**: July 20, 2026
+* **Description**: Upgraded the Desktop File Manager (`usermode-desktop/src/file_manager.rs`) from a static single-directory list into an interactive file browser.
+  * **Thread-Safe Path Tracking (`file_manager.rs`)**: Introduced `FileManagerState` with `path_buf`, `path_len`, `selected_index`, and `hovered_index` using atomic types without unsafe code.
+  * **Top Control & Breadcrumbs Bar (`file_manager.rs`)**: Added navigation buttons for Back (`<`), Up/Root (`^`), Refresh (`R`), and active location path display.
+  * **Interactive Item Highlights (`file_manager.rs`)**: Rendered interactive selection highlights (`selected_index`) and subtle hover highlights (`hovered_index`).
+  * **Directory Navigation & Click Routing (`input.rs` & `render.rs`)**: Connected mouse body clicks in window 2 to `handle_file_manager_click`, enabling single-click entry into subdirectories and back navigation, as well as live mouse hover updates.
+* **Rationale**: Provides dynamic file system navigation and interactive UI controls adhering strictly to `AI_GUIDELINES.md` Zero Unsafe and 100% `///` documentation policies.
+* **Location**: `usermode-desktop/src/file_manager.rs`, `usermode-desktop/src/render.rs`, and `usermode-desktop/src/input.rs`
+
+### 24. File Manager Overhaul (Phase 2: Side Preview Drawer & Text Inspection)
+* **Date**: July 20, 2026
+* **Description**: Enhanced the Desktop File Manager (`usermode-desktop/src/file_manager.rs`) with a right-hand details and quick preview drawer.
+  * **Split Layout View (`file_manager.rs`)**: Divided the window into a left-hand directory item browser and a right-hand metadata & preview drawer with vertical separator lines.
+  * **File Type Detection (`detect_file_type`)**: Implemented file extension inspection mapping items to human-readable type badges (e.g. "Rust Source Code", "Text Document", "System Log File", "Folder", "Executable Binary").
+  * **Live Multi-Line Text Preview (`draw_file_manager`)**: Added automatic file opening (`sys_open`) and preview buffer reading (`sys_read`) for selected files, rendering the first lines of text in a rounded glass preview card along with exact byte sizes.
+  * **Empty State Card**: Displays a clean "No item selected" placeholder when no directory item is active.
+* **Rationale**: Provides instant inspection of file metadata and contents without leaving the file manager window, adhering strictly to `AI_GUIDELINES.md` Zero Unsafe and 100% `///` documentation standards.
+* **Location**: `usermode-desktop/src/file_manager.rs`
+
+### 25. File Manager Overhaul (Phase 3: Operations Toolbar & Modal Dialogs)
+* **Date**: July 20, 2026
+* **Description**: Added item creation and deletion operations to the Desktop File Manager (`usermode-desktop/src/file_manager.rs`).
+  * **Operations Toolbar Buttons (`draw_file_manager`)**: Added +Folder (`+Dir`), +File (`+File`), and Delete (`X`) buttons on the right side of the navigation toolbar.
+  * **Modal Dialog Overlay State (`FileManagerState`)**: Introduced `modal_mode`, `modal_input_buf`, and `modal_input_len` to manage pop-up creation prompts for directories, files, and delete confirmations.
+  * **Keyboard Typing & Action Submission (`handle_file_manager_key` & `execute_modal_action`)**: Integrated live keyboard text entry, Backspace editing, Escape canceling, and Enter submission routing to `sys_mkdir` and `sys_open`/`sys_write`.
+* **Rationale**: Empowers users to create new subdirectories and text files directly from the graphical user interface, strictly adhering to `AI_GUIDELINES.md` Zero Unsafe and 100% `///` documentation policies.
+* **Location**: `usermode-desktop/src/file_manager.rs` and `usermode-desktop/src/input.rs`
+
+### 26. File Manager Overhaul (Phase 4: View Modes & Vertical Scrollbar)
+* **Date**: July 20, 2026
+* **Description**: Added dual view mode rendering (List View vs Grid View) and vertical scrollbar support to the Desktop File Manager (`usermode-desktop/src/file_manager.rs`).
+  * **View Mode Selector (`toggle_view_mode`)**: Added `view_mode` state and a dedicated `[Lst]` / `[Grd]` toolbar button to toggle between detailed line list view and large icon grid card layout.
+  * **Grid View Card Layout (`draw_file_manager`)**: Designed a responsive multi-column card grid rendering icons at the top and file titles underneath.
+  * **Vertical Scrollbar (`scroll_offset`)**: Calculated container and item heights to render a dynamic scrollbar track and thumb when item counts exceed window bounds.
+* **Rationale**: Delivers a customizable file browsing experience matching desktop standards while maintaining `AI_GUIDELINES.md` Zero Unsafe and 100% `///` documentation compliance.
+* **Location**: `usermode-desktop/src/file_manager.rs`
+
+### 27. File Manager Overhaul (Phase 5 & Modular Directory Refactoring)
+* **Date**: July 20, 2026
+* **Description**: Completed File Manager overhaul Phase 5 (Status Bar & Disk Storage telemetry) and refactored single monolithic file into a clean modular module directory (`usermode-desktop/src/file_manager/`).
+  * **Modular Split (`file_manager/`)**: Split `file_manager.rs` into `mod.rs`, `state.rs`, `draw.rs`, and `input.rs`, maintaining strict compliance with `AI_GUIDELINES.md` file length limits (< 800 lines per file).
+  * **Scrollbar Interaction Fix (`handle_file_manager_click`)**: Added mouse scrollbar track region click detection (`scroll_up` / `scroll_down`) and keyboard arrow key scrolling (`handle_file_manager_key`).
+  * **Phase 5 Status Bar (`draw_file_manager`)**: Added bottom telemetry bar rendering total directory item counts, active selection label, and VFS storage status indicators.
+* **Rationale**: Organizes application architecture for scalable maintenance and completes the full 5-phase File Manager roadmap.
+* **Location**: `usermode-desktop/src/file_manager/` (`mod.rs`, `state.rs`, `draw.rs`, `input.rs`)
+
 ---
 
 ## 📊 Visual Telemetry & Interface Enhancements

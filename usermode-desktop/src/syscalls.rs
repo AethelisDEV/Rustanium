@@ -129,6 +129,20 @@ pub fn sys_mkdir(path: *const u8, len: usize) -> u64 {
     syscall2(0x24, path as u64, len as u64)
 }
 
+/// Unlinks / removes a file or directory node from the virtual file system.
+///
+/// # Arguments
+///
+/// * `path` - Raw pointer to the path string bytes.
+/// * `len` - Length of the path string in bytes.
+///
+/// # Returns
+///
+/// `0` on success, or `u64::MAX` on error.
+pub fn sys_remove(path: *const u8, len: usize) -> u64 {
+    syscall2(0x25, path as u64, len as u64)
+}
+
 pub fn sys_get_shared_info() -> *const SharedSystemInfo {
     syscall0(0x30) as *const SharedSystemInfo
 }
